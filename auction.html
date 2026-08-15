@@ -961,16 +961,23 @@
         // STUN alone only helps two browsers find each other's public address for a
         // DIRECT connection — on many mobile/carrier networks and strict NATs a direct
         // path is impossible, and without a TURN relay that pair just gets silent
-        // audio/video with no error. The openrelay.metered.ca servers below are a free,
-        // shared TURN relay good enough to fix that for this auction; if the room gets
-        // large or this feels unreliable, swap in dedicated TURN credentials (e.g. from
-        // Twilio or Cloudflare Calls) — same shape, just different urls/username/credential.
-        const ICE_SERVERS = [
+        // audio/video with no error.
+        // Starts as the free fallback relay; loadIceServers() below swaps this for our
+        // dedicated ExpressTURN credentials fetched from our own server (server.js
+        // keeps the ExpressTURN password secret and never hardcodes it in this file).
+        let ICE_SERVERS = [
             {urls: "stun:stun.l.google.com:19302"},
             {urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject"},
             {urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject"},
             {urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject"}
         ];
+        async function loadIceServers() {
+            try {
+                const res = await fetch("/api/turn-credentials");
+                const data = await res.json();
+                if (Array.isArray(data.iceServers) && data.iceServers.length) ICE_SERVERS = data.iceServers;
+            } catch (error) { /* keep the fallback list above */ }
+        }
         const videoGrid = document.getElementById("videoGrid");
         const micBtn = document.getElementById("micBtn");
         const camBtn = document.getElementById("camBtn");
@@ -1131,13 +1138,48 @@
         function clearReconnectTimers(peerId) {
             const t = reconnectTimers.get(peerId);
             if (t) { clearTimeout(t.soft); clearTimeout(t.hard); reconnectTimers.delete(peerId); }
+            const entry = peers.get(peerId);
+            if (entry) entry.rebuildAttempts = 0; // connection is healthy again — reset the escalation counter
         }
 
         function setTileConnectionState(entry, state) {
             const bad = state === "failed" || state === "disconnected";
             entry.tile.classList.toggle("reconnecting", bad);
+            if (entry.audioOnlyFallback) { entry.statusEl.textContent = "Audio only — weak connection"; return; }
             if (entry.statusEl) entry.statusEl.textContent = state === "failed" ? "Connection lost — reconnecting…" : state === "disconnected" ? "Weak connection…" : "";
         }
+
+        // ---- Autoplay-blocked audio ----
+        // Browsers block a <video>/<audio> element from playing sound until the
+        // page has had a real user gesture (click/tap). Because incoming WebRTC
+        // audio arrives via signaling (not a click), play() can silently fail here
+        // with NotAllowedError — you'd see/hear nothing from a peer even though
+        // the connection is perfectly healthy and they can hear you fine. When
+        // that happens we show a one-tap banner; a single tap unlocks audio for
+        // every tile at once (browsers only require ONE gesture per page).
+        let audioBlocked = false;
+        const unlockBanner = document.createElement("div");
+        unlockBanner.id = "audioUnlockBanner";
+        unlockBanner.style.cssText = "display:none;position:sticky;top:0;z-index:20;background:#f59e0b;color:#111827;font-weight:700;text-align:center;padding:10px;border-radius:8px;margin-bottom:10px;cursor:pointer";
+        unlockBanner.textContent = "🔊 Tap here to enable sound";
+        videoGrid.parentNode.insertBefore(unlockBanner, videoGrid);
+        function tryPlay(entry) {
+            const p = entry.video.play();
+            if (p && p.catch) p.catch((error) => {
+                if (error.name === "NotAllowedError") {
+                    audioBlocked = true;
+                    unlockBanner.style.display = "block";
+                }
+            });
+        }
+        function unlockAllAudio() {
+            audioBlocked = false;
+            unlockBanner.style.display = "none";
+            peers.forEach((entry) => { if (entry.video.srcObject) entry.video.play().catch(() => {}); });
+        }
+        unlockBanner.addEventListener("click", unlockAllAudio);
+        document.addEventListener("click", unlockAllAudio, {once: true});
+        document.addEventListener("touchend", unlockAllAudio, {once: true});
 
         async function restartIce(peerId) {
             const entry = peers.get(peerId);
@@ -1151,16 +1193,24 @@
             } catch (error) { /* will fall through to the hard rebuild below */ }
         }
 
+        // After a couple of full rebuilds keep failing, stop trying to carry video on
+        // this connection and rebuild audio-only — voice needs a fraction of the
+        // bandwidth of video, so it holds a marginal link that video can't.
+        const AUDIO_ONLY_AFTER_ATTEMPTS = 2;
+
         function rebuildConnection(peerId) {
             const entry = peers.get(peerId);
             if (!entry) return;
             const state = entry.pc.iceConnectionState;
             if (state !== "failed" && state !== "disconnected") return; // already recovered
+            entry.rebuildAttempts = (entry.rebuildAttempts || 0) + 1;
+            if (entry.rebuildAttempts >= AUDIO_ONLY_AFTER_ATTEMPTS) entry.audioOnlyFallback = true;
             const wasInitiator = entry.isInitiator;
             entry.pc.close();
-            const pc = createPeerConnection(peerId);
+            const pc = createPeerConnection(peerId, {audioOnly: entry.audioOnlyFallback});
             entry.pc = pc;
             setTileHasVideo(entry, false);
+            setTileConnectionState(entry, "checking");
             if (wasInitiator) {
                 pc.createOffer().then((offer) => pc.setLocalDescription(offer)).then(() => {
                     socket.send(JSON.stringify({type: "webrtc-signal", to: peerId, signalType: "offer", data: pc.localDescription}));
@@ -1175,9 +1225,24 @@
             reconnectTimers.set(peerId, {soft, hard});
         }
 
-        function createPeerConnection(peerId) {
+        function createPeerConnection(peerId, options) {
+            const audioOnly = !!(options && options.audioOnly);
             const pc = new RTCPeerConnection({iceServers: ICE_SERVERS});
-            if (localStream) localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+            if (localStream) {
+                localStream.getTracks().forEach((track) => {
+                    if (audioOnly && track.kind === "video") return; // drop video to protect the voice connection
+                    const sender = pc.addTrack(track, localStream);
+                    if (track.kind === "video") {
+                        // Cap video bitrate so it can't crowd out the audio packets on a
+                        // constrained link — audio needs very little bandwidth, but a
+                        // congested link causes choppy/dropped voice for everyone.
+                        const params = sender.getParameters();
+                        if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+                        params.encodings[0].maxBitrate = 250000;
+                        sender.setParameters(params).catch(() => {});
+                    }
+                });
+            }
             pc.onicecandidate = (event) => {
                 if (event.candidate && socket && socket.readyState === WebSocket.OPEN) {
                     socket.send(JSON.stringify({type: "webrtc-signal", to: peerId, signalType: "ice-candidate", data: event.candidate}));
@@ -1188,6 +1253,7 @@
                 if (!entry) return;
                 entry.video.srcObject = event.streams[0];
                 if (event.track.kind === "video") setTileHasVideo(entry, true);
+                tryPlay(entry); // guard against the browser silently blocking playback
             };
             pc.oniceconnectionstatechange = () => {
                 const entry = peers.get(peerId);
@@ -1283,7 +1349,7 @@
         updateRoleUI();
         updateControls();
         resetSpinDisplay();
-        initLocalMedia().then(connectSocket);
+        initLocalMedia().then(loadIceServers).then(connectSocket);
     </script>
 </body>
 
