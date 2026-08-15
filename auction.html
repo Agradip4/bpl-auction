@@ -1,0 +1,1195 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BPL Auction Arena</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0f172a, #111827);
+            color: #f8fafc;
+            min-height: 100vh;
+        }
+
+        header {
+            background: #020617;
+            color: #fbbf24;
+            text-align: center;
+            padding: 20px;
+            font-size: 32px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 360px 1fr 360px;
+            gap: 20px;
+            padding: 20px;
+        }
+
+        .panel {
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid #334155;
+            border-radius: 16px;
+            padding: 18px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+        }
+
+        h2 {
+            color: #fde68a;
+            margin-bottom: 12px;
+            font-size: 20px;
+        }
+
+        .center {
+            text-align: center;
+        }
+
+        #pointerLabel {
+            display: none;
+        }
+
+        .spin-result {
+            text-align: center;
+            color: #f8fafc;
+            margin: 0 auto 10px;
+            font-size: 16px;
+            min-height: 22px;
+            font-weight: 700;
+        }
+
+        .spin-result {
+            min-height: 180px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 54px;
+            font-weight: 900;
+            color: #fbbf24;
+            background: rgba(255, 255, 255, 0.04);
+            border: 2px dashed #fbbf24;
+            border-radius: 24px;
+            margin: 0 auto 20px;
+            padding: 20px;
+            width: 100%;
+            max-width: 560px;
+            text-align: center;
+            line-height: 1.05;
+        }
+
+        button {
+            border: none;
+            border-radius: 10px;
+            padding: 11px 16px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.2s ease, opacity 0.2s ease;
+        }
+
+        button:hover:not(:disabled) {
+            transform: scale(1.04);
+        }
+
+        button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        #spinBtn {
+            background: #16a34a;
+            color: white;
+        }
+
+        #sellBtn {
+            background: #dc2626;
+            color: white;
+        }
+
+        #resetBtn {
+            background: #2563eb;
+            color: white;
+        }
+
+        #exportBtn,
+        #importBtn {
+            background: #475569;
+            color: white;
+        }
+
+        .controls {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+
+        .status {
+            background: #111827;
+            border: 1px solid #475569;
+            border-radius: 10px;
+            padding: 10px 12px;
+            min-height: 46px;
+            color: #fef3c7;
+            line-height: 1.4;
+        }
+
+        .team {
+            background: #111827;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+
+        .team h3 {
+            color: #fef3c7;
+            margin-bottom: 8px;
+        }
+
+        .budget {
+            color: #4ade80;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .teamPlayers {
+            font-size: 13px;
+            color: #cbd5e1;
+            min-height: 24px;
+            line-height: 1.5;
+            margin-bottom: 8px;
+        }
+
+        .bidBtn {
+            width: 100%;
+            background: #f59e0b;
+            color: #111827;
+        }
+
+        .currentPlayer {
+            font-size: 24px;
+            font-weight: 700;
+            color: #4ade80;
+            min-height: 38px;
+            margin-bottom: 10px;
+        }
+
+        .highestBid {
+            font-size: 18px;
+            color: #fbbf24;
+            margin-bottom: 12px;
+            min-height: 24px;
+        }
+
+        .bidBox {
+            margin-bottom: 16px;
+        }
+
+        .bidBox input {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            border-radius: 8px;
+            border: 1px solid #64748b;
+        }
+
+        .soldPlayers {
+            font-size: 14px;
+            line-height: 1.6;
+            color: #e2e8f0;
+        }
+
+        .history-log {
+            max-height: 220px;
+            overflow-y: auto;
+            background: #0b1220;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: 10px 12px;
+        }
+
+        .history-log div.historyRow {
+            padding: 4px 0;
+            border-bottom: 1px solid #1e293b;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .history-log div.historyRow:last-child {
+            border-bottom: none;
+        }
+
+        .history-time {
+            color: #64748b;
+            font-size: 12px;
+            margin-right: 6px;
+        }
+
+        .historyDeleteBtn {
+            flex-shrink: 0;
+            background: #7f1d1d;
+            color: #fecaca;
+            border: none;
+            border-radius: 6px;
+            width: 22px;
+            height: 22px;
+            line-height: 1;
+            font-size: 12px;
+            padding: 0;
+            cursor: pointer;
+        }
+
+        .historyDeleteBtn:hover {
+            background: #991b1b;
+        }
+
+        .roleInfo {
+            color: #cbd5e1;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+
+        .logoutBtn {
+            margin-top: 12px;
+            width: 100%;
+            background: #334155;
+            color: white;
+        }
+
+        @media (max-width: 1100px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+
+            #wheelCanvas {
+                width: min(90vw, 520px);
+                height: min(90vw, 520px);
+            }
+        }
+
+        .video-panel {
+            margin: 0 20px;
+        }
+
+        .video-panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .media-controls {
+            display: flex;
+            gap: 8px;
+        }
+
+        .mediaBtn {
+            background: #334155;
+            color: #f8fafc;
+        }
+
+        .mediaBtn.off {
+            background: #7f1d1d;
+            color: #fecaca;
+        }
+
+        .mediaBtn.forced {
+            background: #7f1d1d;
+            color: #fecaca;
+            cursor: not-allowed;
+        }
+
+        .video-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 10px;
+        }
+
+        .video-tile {
+            position: relative;
+            background: #000;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            overflow: hidden;
+            aspect-ratio: 4 / 3;
+        }
+
+        .video-tile video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            background: #111827;
+        }
+
+        .video-tile .no-video {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            font-weight: 800;
+            color: #94a3b8;
+            background: #111827;
+        }
+
+        .tile-label {
+            position: absolute;
+            left: 6px;
+            bottom: 6px;
+            background: rgba(2, 6, 23, 0.75);
+            color: #f8fafc;
+            font-size: 12px;
+            padding: 3px 8px;
+            border-radius: 999px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            max-width: calc(100% - 12px);
+        }
+
+        .tile-label .role-tag {
+            color: #fbbf24;
+            font-weight: 700;
+        }
+
+        .tile-label .icon-muted {
+            color: #f87171;
+        }
+
+        .mod-controls {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            display: flex;
+            gap: 4px;
+        }
+
+        .mod-controls button {
+            padding: 4px 7px;
+            font-size: 12px;
+            border-radius: 6px;
+            background: rgba(2, 6, 23, 0.75);
+            color: #f8fafc;
+        }
+
+        .mod-controls button.active {
+            background: #b91c1c;
+        }
+
+        .mod-controls .kickBtn {
+            background: #b91c1c;
+        }
+    </style>
+</head>
+
+<body>
+    <header>🏏 BPL AUCTION ARENA<br><small id="eventNameLabel">Loading event…</small></header>
+
+    <section class="panel video-panel">
+        <div class="video-panel-head">
+            <h2 style="margin-bottom:0;">Live</h2>
+            <div class="media-controls">
+                <button class="mediaBtn" id="micBtn" type="button">🎤 Mic</button>
+                <button class="mediaBtn" id="camBtn" type="button">🎥 Camera</button>
+            </div>
+        </div>
+        <div class="video-grid" id="videoGrid"></div>
+    </section>
+
+    <div class="container">
+        <section class="panel">
+            <h2>Teams</h2>
+            <div id="teamsContainer"></div>
+        </section>
+
+        <section class="panel center">
+            <div id="pointerLabel"></div>
+            <div id="spinResult" class="spin-result">Ready to spin</div>
+            <div class="controls">
+                <button id="spinBtn">🎡 Spin</button>
+                <button id="sellBtn">⏱️ Start Bid Countdown</button>
+                <button id="resetBtn">🔄 Reset Auction</button>
+                <button id="playersBtn">Manage Auction Players</button>
+            </div>
+            <div class="status" id="auctionStatus">Spin the wheel to reveal the next player.</div>
+            <div class="roleInfo">Logged in as <strong id="currentDisplayName"></strong> (<strong id="currentRole"></strong>)</div>
+            <button class="logoutBtn" id="logoutBtn">Logout</button>
+        </section>
+
+        <section class="panel">
+            <h2>Current Player</h2>
+            <div id="currentPlayer" class="currentPlayer">No player selected</div>
+            <div id="highestBid" class="highestBid">Highest Bid: --</div>
+            <div class="bidBox">
+                <input type="number" id="bidAmount" min="1" value="100" placeholder="Enter bid amount">
+            </div>
+            <button class="bidBtn" id="teamBidBtn">Bid</button>
+            <h2 style="margin-top: 20px;">Sold Players</h2>
+            <div id="soldPlayers" class="soldPlayers">No players sold yet.</div>
+            <h2 style="margin-top:16px;">Unsold Players</h2>
+            <div id="unsoldPlayers" class="soldPlayers">No unsold players yet.</div>
+            <h2 style="margin-top:16px;">History</h2>
+            <div id="auctionHistory" class="soldPlayers history-log">No events yet.</div>
+        </section>
+    </div>
+
+    <script>
+
+        let playerNames = [
+            "Prasanta da",
+            "Sushil da",
+            "Debo da",
+            "Sagnik Maz",
+            "Ajay da",
+            "Ayan",
+            "Indra da",
+            "Nepal da",
+            "Niloy",
+            "Koustab",
+            "Santu da",
+            "Prem",
+            "Nil da",
+            "Susanta da",
+            "Rana da",
+            "Ritwik",
+            "Tanmoy",
+            "Mithun",
+            "Arko",
+            "Aritra"
+        ];
+
+        const teams = [
+            {name: "Team A", budget: 1000, players: []},
+            {name: "Team B", budget: 1000, players: []},
+            {name: "Team C", budget: 1000, players: []},
+            {name: "Team D", budget: 1000, players: []},
+            {name: "Team E", budget: 1000, players: []}
+        ];
+
+        const spinResultEl = document.getElementById("spinResult");
+
+        let wheelPlayers = [...playerNames];
+        let spinRevealSeconds = 0;
+        let currentPlayer = null;
+        let currentBid = {amount: 0, teamIndex: null, teamName: ""};
+        let soldPlayers = [];
+        let unsoldPlayers = [];
+        let countdownSeconds = 0;
+        let socket = null;
+        let isInitialSync = true;
+        let auctionHistory = [];
+        let lastServerState = null;
+
+        const storedRole = new URLSearchParams(window.location.search).get("role") || localStorage.getItem("bplRole");
+        const auctionEventId = new URLSearchParams(window.location.search).get("event");
+        if (!storedRole || !auctionEventId) {
+            window.location.href = "history.html";
+        }
+
+        let currentRole = storedRole || "Audience";
+        const currentName = (new URLSearchParams(window.location.search).get("name") || localStorage.getItem("bplName") || currentRole).trim().slice(0, 40);
+
+        function canSpin() {
+            return currentRole === "Bidder";
+        }
+
+        function canSell() {
+            return currentRole === "Bidder";
+        }
+
+        function canReset() {
+            return currentRole === "Bidder";
+        }
+
+        function canBidForTeam(index) {
+            return currentRole === teams[index].name;
+        }
+
+        function logout() {
+            if (localStream) localStream.getTracks().forEach((track) => track.stop());
+            peers.forEach((entry) => entry.pc.close());
+            localStorage.removeItem("bplRole");
+            window.location.href = "history.html";
+        }
+
+        function updateRoleUI() {
+            document.getElementById("currentRole").textContent = currentRole;
+            document.getElementById("currentDisplayName").textContent = currentName;
+            document.getElementById("playersBtn").style.display = currentRole === "Bidder" ? "" : "none";
+        }
+
+        function updateControls() {
+            document.getElementById("spinBtn").disabled = !canSpin() || countdownSeconds > 0 || spinRevealSeconds > 0;
+            document.getElementById("sellBtn").disabled = !canSell() || !currentPlayer || countdownSeconds > 0 || spinRevealSeconds > 0;
+            document.getElementById("resetBtn").disabled = !canReset() || countdownSeconds > 0 || spinRevealSeconds > 0;
+
+            const canPlaceBid = getCurrentTeamIndex() !== -1;
+            const bidInput = document.getElementById("bidAmount");
+            const bidButton = document.getElementById("teamBidBtn");
+            const bidDisabled = !canPlaceBid || !currentPlayer || countdownSeconds > 0 || spinRevealSeconds > 0;
+            if (bidInput) bidInput.disabled = bidDisabled;
+            if (bidButton) bidButton.disabled = bidDisabled;
+
+            updateCountdownButton();
+            renderTeams();
+        }
+
+        function updateCountdownButton() {
+            const sellBtn = document.getElementById("sellBtn");
+            if (countdownSeconds > 0) {
+                sellBtn.textContent = `⏱️ ${countdownSeconds}`;
+            } else {
+                sellBtn.textContent = "⏱️ Start Bid Countdown";
+            }
+        }
+
+        function renderTeams() {
+            const container = document.getElementById("teamsContainer");
+            container.innerHTML = "";
+
+            teams.forEach((team) => {
+                const playersList = team.players.length > 0 ? team.players.join(" • ") : "No players yet";
+
+                container.innerHTML += `
+                    <div class="team">
+                        <h3>${team.name}</h3>
+                        <div class="budget">Budget: ${team.budget} pts</div>
+                        <div class="teamPlayers">${playersList}</div>
+                    </div>
+                `;
+            });
+        }
+
+        function updateCurrentPlayer() {
+            const el = document.getElementById("currentPlayer");
+            el.textContent = currentPlayer ? currentPlayer : "No player selected";
+        }
+
+        function updatePointerLabel() {
+            const label = document.getElementById("pointerLabel");
+            if (!label) return;
+            if (spinRevealSeconds > 0) {
+                label.textContent = "";
+                return;
+            }
+            label.textContent = currentPlayer ? currentPlayer : "";
+        }
+
+        function updateHighestBid() {
+            const el = document.getElementById("highestBid");
+            if (currentBid.teamIndex === null) {
+                el.textContent = "Highest Bid: --";
+                return;
+            }
+            el.textContent = `Highest Bid: ${currentBid.teamName} - ${currentBid.amount} pts`;
+        }
+
+        function updateStatus(message) {
+            document.getElementById("auctionStatus").textContent = message;
+        }
+
+        function renderSoldPlayers() {
+            const el = document.getElementById("soldPlayers");
+            if (soldPlayers.length === 0) {
+                el.innerHTML = "No players sold yet.";
+                return;
+            }
+            el.innerHTML = soldPlayers.map((entry) => `<div>• ${entry.player} → ${entry.team} for ${entry.amount} pts</div>`).join("");
+        }
+
+        function renderUnsoldPlayers() {
+            const el = document.getElementById("unsoldPlayers");
+            if (unsoldPlayers.length === 0) {
+                el.innerHTML = "No unsold players yet.";
+                return;
+            }
+            el.innerHTML = unsoldPlayers.map((name) => `<div>• ${name}</div>`).join("");
+        }
+
+        function renderHistory() {
+            const el = document.getElementById("auctionHistory");
+            if (!el) return;
+            if (!Array.isArray(auctionHistory) || auctionHistory.length === 0) {
+                el.innerHTML = "No events yet.";
+                return;
+            }
+            const isBidder = currentRole === "Bidder";
+            el.innerHTML = auctionHistory
+                .map((entry) => {
+                    const timeLabel = entry.time
+                        ? new Date(entry.time).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"})
+                        : "";
+                    const deleteBtn = isBidder && entry.id
+                        ? `<button class="historyDeleteBtn" data-id="${entry.id}" title="Delete this entry">✕</button>`
+                        : "";
+                    return `<div class="historyRow"><span><span class="history-time">${timeLabel}</span>${entry.message}</span>${deleteBtn}</div>`;
+                })
+                .join("");
+        }
+
+        function deleteHistoryEntry(id) {
+            if (currentRole !== "Bidder" || !id) return;
+            sendAction("deleteHistory", {id});
+        }
+
+        function resetSpinDisplay() {
+            spinResultEl.textContent = "Ready to spin";
+        }
+
+        function updateSpinDisplay() {
+            if (spinRevealSeconds > 0) {
+                spinResultEl.textContent = spinRevealSeconds.toString();
+            } else if (currentPlayer) {
+                spinResultEl.textContent = currentPlayer;
+            } else {
+                resetSpinDisplay();
+            }
+        }
+
+        function syncFromServer(serverState, eventInfo) {
+            if (!serverState) return;
+            if (!eventInfo || eventInfo.id !== auctionEventId) {
+                console.warn("Ignored update for a different auction event.");
+                return;
+            }
+            document.getElementById("eventNameLabel").textContent = eventInfo.name || "Selected auction event";
+            lastServerState = serverState;
+
+            teams.splice(0, teams.length, ...serverState.teams.map((team) => ({...team, players: [...team.players]})));
+            playerNames = Array.isArray(serverState.playerNames) ? [...serverState.playerNames] : playerNames;
+            wheelPlayers = Array.isArray(serverState.wheelPlayers) ? [...serverState.wheelPlayers] : [...playerNames];
+            soldPlayers = Array.isArray(serverState.soldPlayers) ? [...serverState.soldPlayers] : [];
+            unsoldPlayers = Array.isArray(serverState.unsoldPlayers) ? [...serverState.unsoldPlayers] : [];
+            countdownSeconds = Number(serverState.countdownSeconds || 0);
+            auctionHistory = Array.isArray(serverState.history) ? serverState.history : [];
+
+            if (isInitialSync) {
+                isInitialSync = false;
+                spinRevealSeconds = 0;
+                currentPlayer = serverState.currentPlayer;
+                currentBid = serverState.currentBid || {amount: 0, teamIndex: null, teamName: ""};
+            } else {
+                spinRevealSeconds = Number(serverState.spinRevealSeconds || 0);
+                if (spinRevealSeconds > 0) {
+                    currentPlayer = null;
+                    currentBid = {amount: 0, teamIndex: null, teamName: ""};
+                } else {
+                    currentPlayer = serverState.currentPlayer;
+                    currentBid = serverState.currentBid || {amount: 0, teamIndex: null, teamName: ""};
+                }
+            }
+
+            updateCurrentPlayer();
+            updateHighestBid();
+            updatePointerLabel();
+            renderTeams();
+            renderSoldPlayers();
+            renderUnsoldPlayers();
+            renderHistory();
+            updateControls();
+            updateSpinDisplay();
+            updateStatus(serverState.auctionStatus || "Auction update received.");
+        }
+
+        let reconnectAttempts = 0;
+        let reconnectTimer = null;
+        let heartbeatTimer = null;
+        let heartbeatMissed = 0;
+
+        function clearHeartbeat() {
+            if (heartbeatTimer) {
+                clearInterval(heartbeatTimer);
+                heartbeatTimer = null;
+            }
+            heartbeatMissed = 0;
+        }
+
+        function startHeartbeat() {
+            clearHeartbeat();
+            heartbeatTimer = setInterval(() => {
+                if (!socket || socket.readyState !== WebSocket.OPEN) return;
+                heartbeatMissed += 1;
+                if (heartbeatMissed > 2) {
+                    // No traffic at all for ~15s — connection is likely stale. Force a
+                    // reconnect rather than waiting indefinitely for the browser to
+                    // notice the socket is dead.
+                    socket.close();
+                    return;
+                }
+                try {
+                    socket.send(JSON.stringify({type: "join", eventId: auctionEventId, role: currentRole, name: currentName, password: currentRole === "Bidder" ? (localStorage.getItem("bplBidderPassword") || "") : ""}));
+                } catch (error) {
+                    // ignore — close/error handlers will trigger reconnect
+                }
+            }, 5000);
+        }
+
+        function scheduleReconnect() {
+            if (reconnectTimer) return;
+            reconnectAttempts += 1;
+            const delay = Math.min(1000 * Math.pow(1.6, reconnectAttempts), 8000);
+            updateStatus(`Disconnected — reconnecting in ${Math.round(delay / 1000)}s...`);
+            reconnectTimer = setTimeout(() => {
+                reconnectTimer = null;
+                connectSocket();
+            }, delay);
+        }
+
+        function connectSocket() {
+            const backendUrl = window.__AUCTION_BACKEND_URL__ || `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws`;
+            const socketUrl = backendUrl;
+            socket = new WebSocket(socketUrl);
+
+            socket.addEventListener("open", () => {
+                reconnectAttempts = 0;
+                heartbeatMissed = 0;
+                updateStatus("Connected to the live auction room.");
+                socket.send(JSON.stringify({type: "join", eventId: auctionEventId, role: currentRole, name: currentName, password: currentRole === "Bidder" ? (localStorage.getItem("bplBidderPassword") || "") : ""}));
+                startHeartbeat();
+            });
+
+            socket.addEventListener("message", (event) => {
+                heartbeatMissed = 0;
+                try {
+                    const payload = JSON.parse(event.data);
+                    if (payload.type === "state") {
+                        syncFromServer(payload.state, payload.event);
+                    } else if (payload.type === "error") {
+                        updateStatus(payload.message || "Unable to join this auction.");
+                        clearHeartbeat();
+                    } else if (payload.type === "existing-peers") {
+                        payload.peers.forEach((peer) => addPeer(peer, true));
+                    } else if (payload.type === "peer-joined") {
+                        addPeer(payload.peer, false);
+                    } else if (payload.type === "peer-left") {
+                        removePeer(payload.peerId);
+                    } else if (payload.type === "webrtc-signal") {
+                        handleSignal(payload.from, payload.signalType, payload.data);
+                    } else if (payload.type === "peer-media-update") {
+                        updatePeerMediaIcons(payload.peerId, payload.audioEnabled, payload.videoEnabled);
+                    } else if (payload.type === "force-media") {
+                        applyForcedMedia(payload.kind, payload.enabled);
+                    } else if (payload.type === "kicked") {
+                        handleKicked();
+                    }
+                } catch (error) {
+                    console.error("Invalid auction socket payload", error);
+                }
+            });
+
+            socket.addEventListener("close", () => {
+                clearHeartbeat();
+                scheduleReconnect();
+            });
+
+            socket.addEventListener("error", () => {
+                if (socket) socket.close();
+            });
+        }
+
+        function sendAction(action, extra = {}) {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                updateStatus("Connecting to the live auction room...");
+                return;
+            }
+            const payload = {type: action, eventId: auctionEventId, role: currentRole, ...extra};
+            if (currentRole === "Bidder") {
+                payload.password = localStorage.getItem("bplBidderPassword") || "";
+            }
+            socket.send(JSON.stringify(payload));
+        }
+
+        function getCurrentTeamIndex() {
+            return teams.findIndex((team) => team.name === currentRole);
+        }
+
+        function placeBid() {
+            const teamIndex = getCurrentTeamIndex();
+            if (teamIndex === -1) {
+                updateStatus("Only a team captain may place a bid.");
+                return;
+            }
+
+            if (!currentPlayer) {
+                updateStatus("Spin the wheel first to reveal a player.");
+                return;
+            }
+
+            const bidInput = document.getElementById("bidAmount");
+            const bidAmount = bidInput ? Number(bidInput.value) : 0;
+
+            if (!Number.isFinite(bidAmount) || bidAmount <= 0) {
+                updateStatus("Enter a valid bid amount.");
+                return;
+            }
+
+            sendAction("bid", {amount: bidAmount});
+        }
+
+        function spinWheel() {
+            if (!canSpin()) {
+                updateStatus("You are not allowed to spin. Login as Bidder to control the wheel.");
+                return;
+            }
+
+            if (spinRevealSeconds > 0 || countdownSeconds > 0) return;
+            if (wheelPlayers.length === 0) {
+                updateStatus("No players left to spin.");
+                return;
+            }
+
+            sendAction("spin");
+        }
+
+        function startBidCountdown() {
+            if (!canSell()) {
+                updateStatus("You are not allowed to start the countdown. Login as Bidder.");
+                return;
+            }
+            sendAction("startCountdown");
+        }
+
+        function resetAuction() {
+            if (!canReset()) {
+                updateStatus("You are not allowed to reset. Login as Bidder to reset the auction.");
+                return;
+            }
+            sendAction("reset");
+        }
+
+        function managePlayers() {
+            if (currentRole !== "Bidder") return;
+            if (soldPlayers.length || unsoldPlayers.length || currentPlayer) {
+                updateStatus("Player list can only be changed before the auction starts.");
+                return;
+            }
+            const entered = prompt("Keep the players you want, remove names you do not want, and add new names. Separate names with commas.", playerNames.join(", "));
+            if (entered === null) return;
+            const selected = entered.split(",").map((name) => name.trim()).filter(Boolean);
+            if (!selected.length) {
+                updateStatus("Choose at least one player.");
+                return;
+            }
+            sendAction("setPlayers", {players: selected});
+        }
+
+        function exportBackup() {
+            if (currentRole !== "Bidder") {
+                updateStatus("Only the Bidder can export a backup.");
+                return;
+            }
+            if (!lastServerState) {
+                updateStatus("No auction data received yet — wait for connection then try again.");
+                return;
+            }
+            const backup = {format: "bpl-auction-backup-v2", exportedAt: new Date().toISOString(), eventId: auctionEventId, state: lastServerState};
+            const blob = new Blob([JSON.stringify(backup, null, 2)], {type: "application/json"});
+            const url = URL.createObjectURL(blob);
+            const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `bpl-auction-backup-${stamp}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            updateStatus("Backup downloaded. Keep this file safe before redeploying.");
+        }
+
+        function importBackup(file) {
+            if (currentRole !== "Bidder") {
+                updateStatus("Only the Bidder can import a backup.");
+                return;
+            }
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = () => {
+                let parsed;
+                try {
+                    parsed = JSON.parse(reader.result);
+                } catch (error) {
+                    updateStatus("Import failed: that file isn't valid JSON.");
+                    return;
+                }
+                if (!confirm("This will overwrite the live auction for everyone with the imported file. Continue?")) {
+                    return;
+                }
+                sendAction("import", {state: parsed});
+            };
+            reader.onerror = () => {
+                updateStatus("Import failed: could not read the file.");
+            };
+            reader.readAsText(file);
+        }
+
+        // ---- Live video/audio for everyone in the room ----
+        // Simple mesh: each browser opens a direct RTCPeerConnection to every
+        // other participant. The WebSocket server only relays the
+        // offer/answer/ICE messages (see "webrtc-signal" below) and tells a
+        // client when the Bidder has force-muted/hidden it — the server never
+        // touches media itself.
+        const ICE_SERVERS = [{urls: "stun:stun.l.google.com:19302"}];
+        const videoGrid = document.getElementById("videoGrid");
+        const micBtn = document.getElementById("micBtn");
+        const camBtn = document.getElementById("camBtn");
+        const isModerator = currentRole === "Bidder";
+
+        let localStream = null;
+        let micOn = true;
+        let camOn = true;
+        let forcedMuted = false;
+        let forcedVideoOff = false;
+        const peers = new Map(); // peerId -> { pc, info, tileEl, videoEl, placeholderEl }
+
+        function makeTile(peerId, name, role, isLocal) {
+            const tile = document.createElement("div");
+            tile.className = "video-tile";
+            tile.id = "tile-" + peerId;
+            const video = document.createElement("video");
+            video.autoplay = true;
+            video.playsInline = true;
+            if (isLocal) video.muted = true;
+            const placeholder = document.createElement("div");
+            placeholder.className = "no-video";
+            placeholder.textContent = (name || "?").trim().charAt(0).toUpperCase() || "?";
+            const label = document.createElement("div");
+            label.className = "tile-label";
+            label.innerHTML = `<span class="icon-audio">🎤</span><span>${name}${isLocal ? " (you)" : ""}</span><span class="role-tag">${role}</span>`;
+            tile.appendChild(video);
+            tile.appendChild(placeholder);
+            tile.appendChild(label);
+            if (isModerator && !isLocal) {
+                const controls = document.createElement("div");
+                controls.className = "mod-controls";
+                controls.innerHTML = `<button class="muteModBtn" title="Mute / unmute mic">🎤</button><button class="videoModBtn" title="Hide / show camera">🎥</button><button class="kickBtn" title="Remove from auction">✕</button>`;
+                controls.querySelector(".muteModBtn").onclick = () => {
+                    const entry = peers.get(peerId);
+                    moderate(peerId, entry && entry.info.audioEnabled === false ? "unmute" : "mute");
+                };
+                controls.querySelector(".videoModBtn").onclick = () => {
+                    const entry = peers.get(peerId);
+                    moderate(peerId, entry && entry.info.videoEnabled === false ? "video-on" : "video-off");
+                };
+                controls.querySelector(".kickBtn").onclick = () => {
+                    if (confirm(`Remove ${name} from the auction?`)) moderate(peerId, "kick");
+                };
+                tile.appendChild(controls);
+            }
+            videoGrid.appendChild(tile);
+            return {tile, video, placeholder, label};
+        }
+
+        function setTileHasVideo(elems, hasVideo) {
+            elems.video.style.display = hasVideo ? "block" : "none";
+            elems.placeholder.style.display = hasVideo ? "none" : "flex";
+        }
+
+        async function initLocalMedia() {
+            const {video, placeholder} = makeTile("local", currentName, currentRole, true);
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({video: true, audio: true});
+            } catch (error) {
+                try {
+                    localStream = await navigator.mediaDevices.getUserMedia({video: false, audio: true});
+                    camOn = false;
+                } catch (audioError) {
+                    updateStatus("Could not access your camera or microphone. You can still watch the auction.");
+                    localStream = null;
+                }
+            }
+            if (localStream) {
+                video.srcObject = localStream;
+                if (localStream.getVideoTracks().length === 0) camOn = false;
+                if (localStream.getAudioTracks().length === 0) micOn = false;
+            } else {
+                micOn = false;
+                camOn = false;
+            }
+            setTileHasVideo({video, placeholder}, camOn);
+            updateMediaButtons();
+        }
+
+        function updateMediaButtons() {
+            micBtn.textContent = forcedMuted ? "🎤 Muted by bidder" : micOn ? "🎤 Mic on" : "🎤 Mic off";
+            micBtn.className = "mediaBtn " + (forcedMuted ? "forced" : micOn ? "" : "off");
+            camBtn.textContent = forcedVideoOff ? "🎥 Hidden by bidder" : camOn ? "🎥 Camera on" : "🎥 Camera off";
+            camBtn.className = "mediaBtn " + (forcedVideoOff ? "forced" : camOn ? "" : "off");
+            const localIcon = document.querySelector("#tile-local .icon-audio");
+            if (localIcon) { const on = micOn && !forcedMuted; localIcon.textContent = on ? "🎤" : "🔇"; localIcon.className = "icon-audio" + (on ? "" : " icon-muted"); }
+        }
+
+        function sendMediaState() {
+            if (!socket || socket.readyState !== WebSocket.OPEN) return;
+            socket.send(JSON.stringify({type: "media-state", audioEnabled: micOn, videoEnabled: camOn}));
+        }
+
+        function toggleMic() {
+            if (forcedMuted) {
+                updateStatus("The bidder has muted your mic — they need to unmute you.");
+                return;
+            }
+            micOn = !micOn;
+            if (localStream) localStream.getAudioTracks().forEach((track) => { track.enabled = micOn; });
+            updateMediaButtons();
+            sendMediaState();
+        }
+
+        function toggleCam() {
+            if (forcedVideoOff) {
+                updateStatus("The bidder has hidden your camera — they need to turn it back on.");
+                return;
+            }
+            camOn = !camOn;
+            if (localStream) localStream.getVideoTracks().forEach((track) => { track.enabled = camOn; });
+            const local = peers.get("local");
+            setTileHasVideo({video: document.querySelector("#tile-local video"), placeholder: document.querySelector("#tile-local .no-video")}, camOn);
+            updateMediaButtons();
+            sendMediaState();
+        }
+
+        function applyForcedMedia(kind, enabled) {
+            if (kind === "audio") {
+                forcedMuted = !enabled;
+                if (!enabled && localStream) { micOn = false; localStream.getAudioTracks().forEach((track) => { track.enabled = false; }); }
+            } else if (kind === "video") {
+                forcedVideoOff = !enabled;
+                if (!enabled) {
+                    camOn = false;
+                    if (localStream) localStream.getVideoTracks().forEach((track) => { track.enabled = false; });
+                    setTileHasVideo({video: document.querySelector("#tile-local video"), placeholder: document.querySelector("#tile-local .no-video")}, false);
+                }
+            }
+            updateMediaButtons();
+        }
+
+        function handleKicked() {
+            alert("You have been removed from this auction by the bidder.");
+            localStorage.removeItem("bplRole");
+            window.location.href = "history.html";
+        }
+
+        function moderate(targetPeerId, action) {
+            if (!socket || socket.readyState !== WebSocket.OPEN) return;
+            socket.send(JSON.stringify({type: "moderate", target: targetPeerId, action, role: currentRole, password: localStorage.getItem("bplBidderPassword") || ""}));
+        }
+
+        function createPeerConnection(peerId) {
+            const pc = new RTCPeerConnection({iceServers: ICE_SERVERS});
+            if (localStream) localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+            pc.onicecandidate = (event) => {
+                if (event.candidate && socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({type: "webrtc-signal", to: peerId, signalType: "ice-candidate", data: event.candidate}));
+                }
+            };
+            pc.ontrack = (event) => {
+                const entry = peers.get(peerId);
+                if (!entry) return;
+                entry.video.srcObject = event.streams[0];
+                setTileHasVideo(entry, true);
+            };
+            return pc;
+        }
+
+        function addPeer(info, shouldInitiate) {
+            if (peers.has(info.peerId)) {
+                updatePeerMediaIcons(info.peerId, info.audioEnabled, info.videoEnabled);
+                return;
+            }
+            const elems = makeTile(info.peerId, info.name, info.role, false);
+            const pc = createPeerConnection(info.peerId);
+            peers.set(info.peerId, {pc, info, ...elems});
+            setTileHasVideo(elems, false);
+            updatePeerMediaIcons(info.peerId, info.audioEnabled, info.videoEnabled);
+            if (shouldInitiate) {
+                pc.createOffer().then((offer) => pc.setLocalDescription(offer)).then(() => {
+                    socket.send(JSON.stringify({type: "webrtc-signal", to: info.peerId, signalType: "offer", data: pc.localDescription}));
+                }).catch(() => {});
+            }
+        }
+
+        function removePeer(peerId) {
+            const entry = peers.get(peerId);
+            if (!entry) return;
+            entry.pc.close();
+            entry.tile.remove();
+            peers.delete(peerId);
+        }
+
+        async function handleSignal(fromPeerId, signalType, data) {
+            let entry = peers.get(fromPeerId);
+            if (!entry) {
+                // A newcomer's offer arrives before we've heard "peer-joined" — create the tile now.
+                addPeer({peerId: fromPeerId, name: "Participant", role: "", audioEnabled: true, videoEnabled: true}, false);
+                entry = peers.get(fromPeerId);
+            }
+            const pc = entry.pc;
+            if (signalType === "offer") {
+                await pc.setRemoteDescription(new RTCSessionDescription(data));
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                socket.send(JSON.stringify({type: "webrtc-signal", to: fromPeerId, signalType: "answer", data: pc.localDescription}));
+            } else if (signalType === "answer") {
+                await pc.setRemoteDescription(new RTCSessionDescription(data));
+            } else if (signalType === "ice-candidate") {
+                try { await pc.addIceCandidate(new RTCIceCandidate(data)); } catch (error) { /* ignore late candidates */ }
+            }
+        }
+
+        function updatePeerMediaIcons(peerId, audioEnabled, videoEnabled) {
+            const entry = peers.get(peerId);
+            if (!entry) return;
+            entry.info.audioEnabled = audioEnabled;
+            entry.info.videoEnabled = videoEnabled;
+            const icon = entry.label.querySelector(".icon-audio");
+            if (icon) { icon.textContent = audioEnabled ? "🎤" : "🔇"; icon.className = "icon-audio" + (audioEnabled ? "" : " icon-muted"); }
+            if (!videoEnabled) setTileHasVideo(entry, false);
+        }
+
+        micBtn.addEventListener("click", toggleMic);
+        camBtn.addEventListener("click", toggleCam);
+
+        document.getElementById("spinBtn").addEventListener("click", spinWheel);
+        document.getElementById("sellBtn").addEventListener("click", startBidCountdown);
+        document.getElementById("teamBidBtn").addEventListener("click", placeBid);
+        document.getElementById("resetBtn").addEventListener("click", resetAuction);
+        document.getElementById("playersBtn").addEventListener("click", managePlayers);
+        document.getElementById("logoutBtn").addEventListener("click", logout);
+        document.getElementById("auctionHistory").addEventListener("click", (event) => {
+            const btn = event.target.closest(".historyDeleteBtn");
+            if (!btn) return;
+            deleteHistoryEntry(btn.dataset.id);
+        });
+
+        renderTeams();
+        renderSoldPlayers();
+        renderUnsoldPlayers();
+        renderHistory();
+        updateCurrentPlayer();
+        updateHighestBid();
+        updateRoleUI();
+        updateControls();
+        resetSpinDisplay();
+        initLocalMedia().then(connectSocket);
+    </script>
+</body>
+
+</html>

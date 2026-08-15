@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BPL Auction Arena</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0f172a, #111827);
+            color: #f8fafc;
+            min-height: 100vh;
+        }
+
+        header {
+            background: #020617;
+            color: #fbbf24;
+            text-align: center;
+            padding: 20px;
+            font-size: 32px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 360px 1fr 360px;
+            gap: 20px;
+            padding: 20px;
+        }
+
+        .panel {
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid #334155;
+            border-radius: 16px;
+            padding: 18px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+        }
+
+        h2 {
+            color: #fde68a;
+            margin-bottom: 12px;
+            font-size: 20px;
+        }
+
+        .center {
+            text-align: center;
+        }
+
+        #wheelCanvas {
+            display: block;
+            margin: 10px auto 20px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 0 30px rgba(251, 191, 36, 0.45);
+        }
+
+        #needle {
+            width: 0;
+            height: 0;
+            border-left: 18px solid transparent;
+            border-right: 18px solid transparent;
+            border-top: 40px solid #ef4444;
+            margin: 0 auto 8px;
+        }
+
+        button {
+            border: none;
+            border-radius: 10px;
+            padding: 11px 16px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.2s ease, opacity 0.2s ease;
+        }
+
+        button:hover {
+            transform: scale(1.04);
+        }
+
+        button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        #spinBtn {
+            background: #16a34a;
+            color: white;
+        }
+
+        #sellBtn {
+            background: #dc2626;
+            color: white;
+        }
+
+        #resetBtn {
+            background: #2563eb;
+            color: white;
+        }
+
+        .controls {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+
+        .status {
+            background: #111827;
+            border: 1px solid #475569;
+            border-radius: 10px;
+            padding: 10px 12px;
+            min-height: 46px;
+            color: #fef3c7;
+            line-height: 1.4;
+        }
+
+        .team {
+            background: #111827;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+
+        .team h3 {
+            color: #fef3c7;
+            margin-bottom: 8px;
+        }
+
+        .budget {
+            color: #4ade80;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .teamPlayers {
+            font-size: 13px;
+            color: #cbd5e1;
+            min-height: 24px;
+            line-height: 1.5;
+            margin-bottom: 8px;
+        }
+
+        .bidBtn {
+            width: 100%;
+            background: #f59e0b;
+            color: #111827;
+        }
+
+        .currentPlayer {
+            font-size: 24px;
+            font-weight: 700;
+            color: #4ade80;
+            min-height: 38px;
+            margin-bottom: 10px;
+        }
+
+        .highestBid {
+            font-size: 18px;
+            color: #fbbf24;
+            margin-bottom: 12px;
+            min-height: 24px;
+        }
+
+        .bidBox {
+            margin-bottom: 16px;
+        }
+
+        .bidBox input {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            border-radius: 8px;
+            border: 1px solid #64748b;
+        }
+
+        .soldPlayers {
+            font-size: 14px;
+            line-height: 1.6;
+            color: #e2e8f0;
+        }
+
+        @media (max-width: 1100px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+
+            #wheelCanvas {
+                width: min(90vw, 520px);
+                height: min(90vw, 520px);
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>🏏 BPL AUCTION ARENA</header>
+
+    <div class="container">
+        <section class="panel">
+            <h2>Login</h2>
+            <div class="teamPlayers" style="margin-bottom:12px;">
+                <select id="roleSelect" style="width:100%;padding:10px;border-radius:8px;border:1px solid #64748b;background:#0f172a;color:#f8fafc;font-size:16px;">
+                    <option>Team A</option>
+                    <option>Team B</option>
+                    <option>Team C</option>
+                    <option>Team D</option>
+                    <option>Team E</option>
+                    <option>Bidder</option>
+                    <option>Audience</option>
+                </select>
+            </div>
+            <button id="loginBtn" style="width:100%;background:#38bdf8;color:#020617;">Login as Selected Role</button>
+            <div class="teamPlayers" style="margin-top:12px;">Current role: <strong id="currentRole">Audience</strong></div>
+            <hr style="border-color:#334155;margin:18px 0;">
+            <h2>Teams</h2>
+            <div id="teamsContainer"></div>
+        </section>
+
+        <section class="panel center">
+            <div id="needle"></div>
+            <canvas id="wheelCanvas" width="600" height="600"></canvas>
+            <div class="controls">
+                <button id="spinBtn">🎡 Spin Wheel</button>
+                <button id="sellBtn">🏆 Sell Player</button>
+                <button id="resetBtn">🔄 Reset Auction</button>
+            </div>
+            <div id="auctionStatus" class="status">Spin the wheel to reveal the next player.</div>
+        </section>
+
+        <section class="panel">
+            <h2>Current Player</h2>
+            <div id="currentPlayer" class="currentPlayer">No player selected</div>
+            <div id="highestBid" class="highestBid">Highest Bid: --</div>
+            <div class="bidBox">
+                <input type="number" id="bidAmount" min="1" value="100" placeholder="Enter bid">
+            </div>
+            <h2>Sold Players</h2>
+            <div id="soldPlayers" class="soldPlayers">No players sold yet.</div>
+        </section>
+    </div>
+
+    <script>
+        const playerNames = [
+            "Prasanta da",
+            "Sushil da",
+            "Debo da",
+            "Sagnik Maz",
+            "Ajay da",
+            "Ayan",
+            "Indra da",
+            "Nepal da",
+            "Niloy",
+            "Koustab",
+            "Santu da",
+            "Prem",
+            "Nil da",
+            "Susanta da",
+            "Rana da",
+            "Ritwik",
+            "Tanmoy",
+            "Mithun",
+            "Arko",
+            "Aritra"
+        ];
+
+        const teams = [
+            { name: "Team A", budget: 1000, players: [] },
+            { name: "Team B", budget: 1000, players: [] },
+            { name: "Team C", budget: 1000, players: [] },
+            { name: "Team D", budget: 1000, players: [] },
+            { name: "Team E", budget: 1000, players: [] }
+        ];
+
+        const canvas = document.getElementById("wheelCanvas");
+        const ctx = canvas.getContext("2d");
+        const radius = canvas.width / 2;
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const wheelColors = ["#ef4444", "#f97316", "#f59e0b", "#eab308", "#84cc16", "#22c55e", "#14b8a6", "#06b6d4", "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7", "#d946ef", "#ec4899", "#f43f5e", "#64748b", "#fb923c", "#2dd4bf", "#38bdf8", "#a78bfa"];
+
+        let wheelPlayers = [...playerNames];
+        let wheelRotation = 0;
+        let spinning = false;
+        let spinSpeed = 0;
+        let targetRotation = 0;
+        let animationId = null;
+        let currentPlayer = null;
+        let currentBid = { amount: 0, teamIndex: null, teamName: "" };
+        let soldPlayers = [];
+        let selectedIndex = null;
+        let currentRole = "Audience";
+
+        function canSpin() {
+            return currentRole === "Bidder";
+        }
+
+        function canSell() {
+            return currentRole === "Bidder";
+        }
+
+        function canReset() {
+            return currentRole === "Bidder";
+        }
+
+        function canBidForTeam(index) {
+            return currentRole === teams[index].name;
+        }
+
+        function loginAsRole() {
+            const select = document.getElementById("roleSelect");
+            currentRole = select.value;
+            updateRoleUI();
+            updateControls();
+            updateStatus(`Logged in as ${currentRole}.`);
+        }
+
+        function updateRoleUI() {
+            document.getElementById("currentRole").textContent = currentRole;
+            document.getElementById("roleSelect").value = currentRole;
+        }
+
+        function updateControls() {
+            document.getElementById("spinBtn").disabled = !canSpin();
+            document.getElementById("sellBtn").disabled = !canSell() || !currentPlayer || currentBid.teamIndex === null;
+            document.getElementById("resetBtn").disabled = !canReset();
+            document.getElementById("bidAmount").disabled = !(currentRole.startsWith("Team "));
+        }
+
+        function renderTeams() {
+            const container = document.getElementById("teamsContainer");
+            container.innerHTML = "";
+
+            teams.forEach((team, index) => {
+                const playersList = team.players.length > 0 ? team.players.join(" • ") : "No players yet";
+                container.innerHTML += `
+                    <div class="team">
+                        <h3>${team.name}</h3>
+                        <div class="budget">Budget: ${team.budget} pts</div>
+                        <div class="teamPlayers">${playersList}</div>
+                        <button class="bidBtn" onclick="placeBid(${index})">Bid for Current Player</button>
+                    </div>
+                `;
+            });
+        }
+
+        function updateCurrentPlayer() {
+            const el = document.getElementById("currentPlayer");
+            el.textContent = currentPlayer ? currentPlayer : "No player selected";
+        }
+
+        function updateHighestBid() {
+            const el = document.getElementById("highestBid");
+            if (currentBid.teamIndex === null) {
+                el.textContent = "Highest Bid: --";
+                return;
+            }
+            el.textContent = `Highest Bid: ${currentBid.teamName} - ${currentBid.amount} pts`;
+        }
+
+        function updateStatus(message) {
+            document.getElementById("auctionStatus").textContent = message;
+        }
+
+        function updateSellButton() {
+            document.getElementById("sellBtn").disabled = !currentPlayer || currentBid.teamIndex === null;
+        }
+
+        function renderSoldPlayers() {
+            const el = document.getElementById("soldPlayers");
+            if (soldPlayers.length === 0) {
+                el.innerHTML = "No players sold yet.";
+                return;
+            }
+
+            el.innerHTML = soldPlayers.map((entry) => `<div>• ${entry.player} → ${entry.team} for ${entry.amount} pts</div>`).join("");
+        }
+
+        function drawWheel() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (wheelPlayers.length === 0) {
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius - 10, 0, Math.PI * 2);
+                ctx.fillStyle = "#1f2937";
+                ctx.fill();
+                ctx.fillStyle = "white";
+                ctx.font = "bold 32px Arial";
+                ctx.textAlign = "center";
+                ctx.fillText("Auction Finished", centerX, centerY);
+                return;
+            }
+
+            const sliceAngle = (Math.PI * 2) / wheelPlayers.length;
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            ctx.rotate(wheelRotation);
+
+            for (let i = 0; i < wheelPlayers.length; i += 1) {
+                const start = i * sliceAngle;
+                const end = start + sliceAngle;
+
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.arc(0, 0, radius - 8, start, end);
+                ctx.closePath();
+                ctx.fillStyle = wheelColors[i % wheelColors.length];
+                ctx.fill();
+                ctx.strokeStyle = "white";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                ctx.save();
+                ctx.rotate(start + sliceAngle / 2);
+                ctx.fillStyle = "white";
+                ctx.font = "bold 14px Arial";
+                ctx.textAlign = "right";
+                const label = wheelPlayers[i].length > 14 ? `${wheelPlayers[i].slice(0, 13)}...` : wheelPlayers[i];
+                ctx.fillText(label, radius - 24, 5);
+                ctx.restore();
+            }
+
+            ctx.restore();
+            drawCenter();
+        }
+
+        function drawCenter() {
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 50, 0, Math.PI * 2);
+            ctx.fillStyle = "#111827";
+            ctx.fill();
+            ctx.lineWidth = 6;
+            ctx.strokeStyle = "#fbbf24";
+            ctx.stroke();
+            ctx.fillStyle = "#fbbf24";
+            ctx.font = "bold 17px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText("BPL", centerX, centerY + 6);
+        }
+
+        function stopSpin() {
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+            }
+            spinning = false;
+            wheelRotation = targetRotation;
+            drawWheel();
+
+            const selectedPlayer = wheelPlayers[selectedIndex];
+            wheelPlayers.splice(selectedIndex, 1);
+            currentPlayer = selectedPlayer;
+            currentBid = { amount: 0, teamIndex: null, teamName: "" };
+            updateCurrentPlayer();
+            updateHighestBid();
+            updateSellButton();
+            updateStatus(`Bidding started for ${selectedPlayer}. Click a team to place a bid.`);
+            renderTeams();
+        }
+
+        function animateWheel() {
+            if (!spinning) return;
+            wheelRotation += spinSpeed;
+            spinSpeed *= 0.97;
+            drawWheel();
+
+            if (spinSpeed < 0.005) {
+                stopSpin();
+                return;
+            }
+
+            animationId = requestAnimationFrame(animateWheel);
+        }
+
+        function spinWheel() {
+            if (!canSpin()) {
+                updateStatus("You are not allowed to spin. Login as Bidder to control the wheel.");
+                return;
+            }
+
+            if (spinning) return;
+            if (wheelPlayers.length === 0) {
+                updateStatus("Auction finished. No players left to spin.");
+                return;
+            }
+
+            selectedIndex = Math.floor(Math.random() * wheelPlayers.length);
+            const sliceAngle = (Math.PI * 2) / wheelPlayers.length;
+            const segmentCenter = selectedIndex * sliceAngle + sliceAngle / 2;
+            const baseRotation = -Math.PI / 2 - segmentCenter;
+            let relativeRotation = baseRotation - wheelRotation;
+            while (relativeRotation < 0) relativeRotation += Math.PI * 2;
+
+            targetRotation = wheelRotation + relativeRotation + (7 + Math.random() * 4) * Math.PI * 2;
+            spinSpeed = 0.25 + Math.random() * 0.2;
+            spinning = true;
+            updateStatus("Wheel is spinning...");
+            animationId = requestAnimationFrame(animateWheel);
+        }
+
+        function placeBid(teamIndex) {
+            if (!canBidForTeam(teamIndex)) {
+                updateStatus("You can only bid for your own team.");
+                return;
+            }
+
+            if (!currentPlayer) {
+                updateStatus("Spin the wheel first to reveal a player.");
+                return;
+            }
+
+            const team = teams[teamIndex];
+            const bidInput = document.getElementById("bidAmount");
+            const bidAmount = Number(bidInput.value);
+
+            if (!Number.isFinite(bidAmount) || bidAmount <= 0) {
+                updateStatus("Enter a valid bid amount.");
+                return;
+            }
+
+            if (bidAmount > team.budget) {
+                updateStatus(`${team.name} does not have enough points for that bid.`);
+                return;
+            }
+
+            if (currentBid.teamIndex !== null && bidAmount <= currentBid.amount) {
+                updateStatus(`The bid must be higher than ${currentBid.amount} pts.`);
+                return;
+            }
+
+            currentBid = { amount: bidAmount, teamIndex, teamName: team.name };
+            updateHighestBid();
+            updateSellButton();
+            updateStatus(`${team.name} placed ${bidAmount} pts for ${currentPlayer}.`);
+            renderTeams();
+        }
+
+        function finalizeSale() {
+            if (!canSell()) {
+                updateStatus("You are not allowed to sell. Login as Bidder to finalize the auction.");
+                return;
+            }
+
+            if (!currentPlayer) {
+                updateStatus("Spin the wheel first.");
+                return;
+            }
+
+            if (currentBid.teamIndex === null) {
+                updateStatus("No team has bid for this player yet.");
+                return;
+            }
+
+            const winningTeam = teams[currentBid.teamIndex];
+            winningTeam.budget -= currentBid.amount;
+            winningTeam.players.push(currentPlayer);
+            soldPlayers.unshift({ player: currentPlayer, team: winningTeam.name, amount: currentBid.amount });
+
+            currentPlayer = null;
+            currentBid = { amount: 0, teamIndex: null, teamName: "" };
+            updateCurrentPlayer();
+            updateHighestBid();
+            updateSellButton();
+            renderTeams();
+            renderSoldPlayers();
+
+            if (wheelPlayers.length === 0) {
+                updateStatus("Auction completed. All players have been sold.");
+            } else {
+                updateStatus("Player sold. Spin the wheel for the next player.");
+            }
+        }
+
+        function resetAuction() {
+            if (!canReset()) {
+                updateStatus("You are not allowed to reset. Login as Bidder to reset the auction.");
+                return;
+            }
+
+            wheelPlayers = [...playerNames];
+            wheelRotation = 0;
+            spinning = false;
+            spinSpeed = 0;
+            targetRotation = 0;
+            currentPlayer = null;
+            currentBid = { amount: 0, teamIndex: null, teamName: "" };
+            soldPlayers = [];
+            selectedIndex = null;
+            teams.forEach((team) => {
+                team.budget = 1000;
+                team.players = [];
+            });
+            drawWheel();
+            updateCurrentPlayer();
+            updateHighestBid();
+            updateSellButton();
+            renderTeams();
+            renderSoldPlayers();
+            updateStatus("Auction reset. Spin the wheel to start again.");
+        }
+
+        document.getElementById("spinBtn").addEventListener("click", spinWheel);
+        document.getElementById("sellBtn").addEventListener("click", finalizeSale);
+        document.getElementById("resetBtn").addEventListener("click", resetAuction);
+        document.getElementById("loginBtn").addEventListener("click", loginAsRole);
+
+        renderTeams();
+        renderSoldPlayers();
+        updateCurrentPlayer();
+        updateHighestBid();
+        updateRoleUI();
+        updateControls();
+        drawWheel();
+    </script>
+</body>
+</html>
