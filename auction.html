@@ -338,6 +338,9 @@
             background: #111827;
         }
 
+        .video-tile.reconnecting { outline: 2px solid #f59e0b; }
+        .tile-status { position: absolute; left: 0; right: 0; bottom: 28px; text-align: center; font-size: 11px; color: #fbbf24; background: rgba(15,23,42,.75); padding: 2px 4px; }
+        .tile-status:empty { display: none; }
         .video-tile .no-video {
             position: absolute;
             inset: 0;
@@ -994,9 +997,12 @@
             const label = document.createElement("div");
             label.className = "tile-label";
             label.innerHTML = `<span class="icon-audio">🎤</span><span>${name}${isLocal ? " (you)" : ""}</span><span class="role-tag">${role}</span>`;
+            const status = document.createElement("div");
+            status.className = "tile-status";
             tile.appendChild(video);
             tile.appendChild(placeholder);
             tile.appendChild(label);
+            tile.appendChild(status);
             if (isModerator && !isLocal) {
                 const controls = document.createElement("div");
                 controls.className = "mod-controls";
@@ -1015,7 +1021,7 @@
                 tile.appendChild(controls);
             }
             videoGrid.appendChild(tile);
-            return {tile, video, placeholder, label};
+            return {tile, video, placeholder, label, statusEl: status};
         }
 
         function setTileHasVideo(elems, hasVideo) {
@@ -1112,6 +1118,63 @@
             socket.send(JSON.stringify({type: "moderate", target: targetPeerId, action, role: currentRole, password: localStorage.getItem("bplBidderPassword") || ""}));
         }
 
+        // ---- Connection recovery ----
+        // "disconnected"/"failed" happen a lot on mobile data and flaky WiFi even
+        // when the TURN relay is healthy. "disconnected" often self-heals within a
+        // few seconds, so we wait before doing anything. If it's still bad we try
+        // an ICE restart (cheap - keeps the same connection, just re-negotiates a
+        // fresh path). If even that doesn't recover, we tear down and rebuild the
+        // whole RTCPeerConnection from scratch, which fixes the cases a plain ICE
+        // restart can't (e.g. a TURN allocation that silently died).
+        const reconnectTimers = new Map(); // peerId -> {soft, hard} timeout ids
+
+        function clearReconnectTimers(peerId) {
+            const t = reconnectTimers.get(peerId);
+            if (t) { clearTimeout(t.soft); clearTimeout(t.hard); reconnectTimers.delete(peerId); }
+        }
+
+        function setTileConnectionState(entry, state) {
+            const bad = state === "failed" || state === "disconnected";
+            entry.tile.classList.toggle("reconnecting", bad);
+            if (entry.statusEl) entry.statusEl.textContent = state === "failed" ? "Connection lost — reconnecting…" : state === "disconnected" ? "Weak connection…" : "";
+        }
+
+        async function restartIce(peerId) {
+            const entry = peers.get(peerId);
+            if (!entry || !entry.isInitiator) return; // only the side that sent the original offer restarts
+            const state = entry.pc.iceConnectionState;
+            if (state !== "failed" && state !== "disconnected") return; // already recovered
+            try {
+                const offer = await entry.pc.createOffer({iceRestart: true});
+                await entry.pc.setLocalDescription(offer);
+                socket.send(JSON.stringify({type: "webrtc-signal", to: peerId, signalType: "offer", data: entry.pc.localDescription}));
+            } catch (error) { /* will fall through to the hard rebuild below */ }
+        }
+
+        function rebuildConnection(peerId) {
+            const entry = peers.get(peerId);
+            if (!entry) return;
+            const state = entry.pc.iceConnectionState;
+            if (state !== "failed" && state !== "disconnected") return; // already recovered
+            const wasInitiator = entry.isInitiator;
+            entry.pc.close();
+            const pc = createPeerConnection(peerId);
+            entry.pc = pc;
+            setTileHasVideo(entry, false);
+            if (wasInitiator) {
+                pc.createOffer().then((offer) => pc.setLocalDescription(offer)).then(() => {
+                    socket.send(JSON.stringify({type: "webrtc-signal", to: peerId, signalType: "offer", data: pc.localDescription}));
+                }).catch(() => {});
+            }
+        }
+
+        function scheduleReconnect(peerId) {
+            if (reconnectTimers.has(peerId)) return;
+            const soft = setTimeout(() => restartIce(peerId), 4000);
+            const hard = setTimeout(() => { reconnectTimers.delete(peerId); rebuildConnection(peerId); }, 12000);
+            reconnectTimers.set(peerId, {soft, hard});
+        }
+
         function createPeerConnection(peerId) {
             const pc = new RTCPeerConnection({iceServers: ICE_SERVERS});
             if (localStream) localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
@@ -1126,6 +1189,17 @@
                 entry.video.srcObject = event.streams[0];
                 if (event.track.kind === "video") setTileHasVideo(entry, true);
             };
+            pc.oniceconnectionstatechange = () => {
+                const entry = peers.get(peerId);
+                if (!entry) return;
+                const state = pc.iceConnectionState;
+                setTileConnectionState(entry, state);
+                if (state === "failed" || state === "disconnected") {
+                    scheduleReconnect(peerId);
+                } else if (state === "connected" || state === "completed") {
+                    clearReconnectTimers(peerId);
+                }
+            };
             return pc;
         }
 
@@ -1136,7 +1210,7 @@
             }
             const elems = makeTile(info.peerId, info.name, info.role, false);
             const pc = createPeerConnection(info.peerId);
-            peers.set(info.peerId, {pc, info, ...elems});
+            peers.set(info.peerId, {pc, info, isInitiator: shouldInitiate, ...elems});
             setTileHasVideo(elems, false);
             updatePeerMediaIcons(info.peerId, info.audioEnabled, info.videoEnabled);
             if (shouldInitiate) {
@@ -1149,6 +1223,7 @@
         function removePeer(peerId) {
             const entry = peers.get(peerId);
             if (!entry) return;
+            clearReconnectTimers(peerId);
             entry.pc.close();
             entry.tile.remove();
             peers.delete(peerId);
