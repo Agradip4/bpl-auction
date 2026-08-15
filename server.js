@@ -86,6 +86,9 @@ function findPeer(eventId, peerId) {
   for (const client of wss.clients) if (client.eventId === eventId && client.peerId === peerId) return client;
   return null;
 }
+// Moderation state (forced mute/hide) keyed by the client's own stable peerId,
+// so a network blip + reconnect doesn't silently clear a bidder's mute/hide.
+const peerModeration = new Map(); // peerId -> { forcedMuted, forcedVideoOff }
 function log(event, message) {
   event.state.history.unshift({ id: crypto.randomUUID(), time: Date.now(), message });
   event.state.history.length = Math.min(event.state.history.length, MAX_HISTORY);
@@ -181,10 +184,19 @@ wss.on('connection', (ws) => {
       ws.eventId = event.id;
       ws.role = String(msg.role || 'Audience');
       ws.name = String(msg.name || '').trim().slice(0, 40) || ws.role;
-      if (!ws.peerId) ws.peerId = crypto.randomUUID();
+      if (!ws.peerId) {
+        // Reuse the peerId the client already has (sent after its first join) so a
+        // dropped/reconnected socket is recognised as the SAME participant instead
+        // of minting a fresh peerId every time — that used to blow away forced
+        // mute/hide state and force a full mesh teardown+rebuild for everyone.
+        const requested = typeof msg.peerId === 'string' && /^[a-zA-Z0-9-]{1,64}$/.test(msg.peerId) ? msg.peerId : null;
+        ws.peerId = requested && !findPeer(event.id, requested) ? requested : crypto.randomUUID();
+        const saved = peerModeration.get(ws.peerId);
+        if (saved) { ws.forcedMuted = saved.forcedMuted; ws.forcedVideoOff = saved.forcedVideoOff; }
+      }
       if (ws.audioEnabled === undefined) ws.audioEnabled = true;
       if (ws.videoEnabled === undefined) ws.videoEnabled = true;
-      ws.send(JSON.stringify({ type: 'state', event: summary(event), state: event.state }));
+      ws.send(JSON.stringify({ type: 'state', event: summary(event), state: event.state, peerId: ws.peerId }));
       if (!alreadyInRoom) {
         ws.send(JSON.stringify({ type: 'existing-peers', peers: peersInEvent(event.id, ws) }));
         broadcastToEvent(event.id, { type: 'peer-joined', peer: peerInfo(ws) }, ws);
@@ -209,6 +221,7 @@ wss.on('connection', (ws) => {
       const target = findPeer(ws.eventId, msg.target);
       if (!target) return;
       if (msg.action === 'kick') {
+        peerModeration.delete(target.peerId);
         target.send(JSON.stringify({ type: 'kicked' }));
         broadcastToEvent(ws.eventId, { type: 'peer-left', peerId: target.peerId }, target);
         target.close(4001, 'Kicked by bidder');
@@ -219,6 +232,8 @@ wss.on('connection', (ws) => {
       else if (msg.action === 'video-off') { target.forcedVideoOff = true; target.send(JSON.stringify({ type: 'force-media', kind: 'video', enabled: false })); }
       else if (msg.action === 'video-on') { target.forcedVideoOff = false; target.send(JSON.stringify({ type: 'force-media', kind: 'video', enabled: true })); }
       else return;
+      if (target.forcedMuted || target.forcedVideoOff) peerModeration.set(target.peerId, { forcedMuted: !!target.forcedMuted, forcedVideoOff: !!target.forcedVideoOff });
+      else peerModeration.delete(target.peerId);
       broadcastToEvent(ws.eventId, { type: 'peer-media-update', peerId: target.peerId, audioEnabled: target.audioEnabled && !target.forcedMuted, videoEnabled: target.videoEnabled && !target.forcedVideoOff }, null);
       return;
     }

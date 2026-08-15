@@ -495,6 +495,10 @@
         let countdownSeconds = 0;
         let socket = null;
         let isInitialSync = true;
+        // Persisted per-tab so a dropped/reconnected socket rejoins as the SAME
+        // participant instead of getting a new peerId every time (that used to
+        // reset any bidder mute/hide and force a full mesh teardown+rebuild).
+        let myPeerId = sessionStorage.getItem("bplPeerId") || null;
         let auctionHistory = [];
         let lastServerState = null;
 
@@ -735,7 +739,7 @@
                     return;
                 }
                 try {
-                    socket.send(JSON.stringify({type: "join", eventId: auctionEventId, role: currentRole, name: currentName, password: currentRole === "Bidder" ? (localStorage.getItem("bplBidderPassword") || "") : ""}));
+                    socket.send(JSON.stringify({type: "join", eventId: auctionEventId, role: currentRole, name: currentName, peerId: myPeerId, password: currentRole === "Bidder" ? (localStorage.getItem("bplBidderPassword") || "") : ""}));
                 } catch (error) {
                     // ignore — close/error handlers will trigger reconnect
                 }
@@ -762,7 +766,7 @@
                 reconnectAttempts = 0;
                 heartbeatMissed = 0;
                 updateStatus("Connected to the live auction room.");
-                socket.send(JSON.stringify({type: "join", eventId: auctionEventId, role: currentRole, name: currentName, password: currentRole === "Bidder" ? (localStorage.getItem("bplBidderPassword") || "") : ""}));
+                socket.send(JSON.stringify({type: "join", eventId: auctionEventId, role: currentRole, name: currentName, peerId: myPeerId, password: currentRole === "Bidder" ? (localStorage.getItem("bplBidderPassword") || "") : ""}));
                 startHeartbeat();
             });
 
@@ -771,6 +775,10 @@
                 try {
                     const payload = JSON.parse(event.data);
                     if (payload.type === "state") {
+                        if (payload.peerId && payload.peerId !== myPeerId) {
+                            myPeerId = payload.peerId;
+                            sessionStorage.setItem("bplPeerId", myPeerId);
+                        }
                         syncFromServer(payload.state, payload.event);
                     } else if (payload.type === "error") {
                         updateStatus(payload.message || "Unable to join this auction.");
@@ -947,7 +955,19 @@
         // offer/answer/ICE messages (see "webrtc-signal" below) and tells a
         // client when the Bidder has force-muted/hidden it — the server never
         // touches media itself.
-        const ICE_SERVERS = [{urls: "stun:stun.l.google.com:19302"}];
+        // STUN alone only helps two browsers find each other's public address for a
+        // DIRECT connection — on many mobile/carrier networks and strict NATs a direct
+        // path is impossible, and without a TURN relay that pair just gets silent
+        // audio/video with no error. The openrelay.metered.ca servers below are a free,
+        // shared TURN relay good enough to fix that for this auction; if the room gets
+        // large or this feels unreliable, swap in dedicated TURN credentials (e.g. from
+        // Twilio or Cloudflare Calls) — same shape, just different urls/username/credential.
+        const ICE_SERVERS = [
+            {urls: "stun:stun.l.google.com:19302"},
+            {urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject"},
+            {urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject"},
+            {urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject"}
+        ];
         const videoGrid = document.getElementById("videoGrid");
         const micBtn = document.getElementById("micBtn");
         const camBtn = document.getElementById("camBtn");
@@ -1104,7 +1124,7 @@
                 const entry = peers.get(peerId);
                 if (!entry) return;
                 entry.video.srcObject = event.streams[0];
-                setTileHasVideo(entry, true);
+                if (event.track.kind === "video") setTileHasVideo(entry, true);
             };
             return pc;
         }
