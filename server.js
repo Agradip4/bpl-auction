@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
+require('dotenv').config(); // loads .env (kept out of git) so secrets like TURN credentials aren't hardcoded here
 
 const app = express();
 const server = http.createServer(app);
@@ -121,6 +122,32 @@ function beginCountdown(event) {
   countdownTimers.set(event.id, timer);
 }
 function resetEvent(event) { if (countdownTimers.has(event.id)) clearInterval(countdownTimers.get(event.id)); countdownTimers.delete(event.id); event.state = createState(); event.status = 'live'; event.completedAt = null; event.state.auctionStatus = 'Auction reset. Spin the wheel to start again.'; log(event, 'Auction reset by bidder.'); }
+
+// ---- TURN credentials for WebRTC (ExpressTURN) ----
+// ExpressTURN's free plan uses a static, long-lived username/password rather
+// than short-lived tokens, so there's no per-request API call needed - we just
+// read them from env vars (set EXPRESSTURN_USERNAME / EXPRESSTURN_PASSWORD on
+// the server) and hand them to the browser. If they're not set yet, this falls
+// back to the old free public relay so the app keeps working in the meantime.
+const EXPRESSTURN_USERNAME = process.env.EXPRESSTURN_USERNAME;
+const EXPRESSTURN_PASSWORD = process.env.EXPRESSTURN_PASSWORD;
+const FALLBACK_ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+];
+app.get('/api/turn-credentials', (_req, res) => {
+  if (!EXPRESSTURN_USERNAME || !EXPRESSTURN_PASSWORD) return res.json({ iceServers: FALLBACK_ICE_SERVERS, source: 'fallback' });
+  res.json({
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'turn:free.expressturn.com:3478?transport=udp', username: EXPRESSTURN_USERNAME, credential: EXPRESSTURN_PASSWORD },
+      { urls: 'turn:free.expressturn.com:3478?transport=tcp', username: EXPRESSTURN_USERNAME, credential: EXPRESSTURN_PASSWORD }
+    ],
+    source: 'expressturn'
+  });
+});
 
 app.get('/api/events', (_req, res) => res.json(events.map(summary).sort((a, b) => b.updatedAt - a.updatedAt)));
 app.post('/api/events', (req, res) => { const event = makeEvent(String(req.body?.name || '')); log(event, 'Auction event created.'); events.push(event); saveEvents(); res.status(201).json(summary(event)); });

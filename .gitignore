@@ -3,3 +3,4 @@ node_modules/
 npm-debug.log*
 auction-state.json
 auction-events.json
+.env
