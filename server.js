@@ -377,7 +377,7 @@ wss.on('connection', (ws) => {
       if (!s.currentPlayer) s.auctionStatus = 'Spin the wheel first.';
       else if (index < 0) s.auctionStatus = 'Only a team captain can place a bid.';
       else if (s.teams[index].players.length >= s.rules.maxPlayersPerTeam) s.auctionStatus = `${s.teams[index].name} already has ${s.rules.maxPlayersPerTeam} players and cannot bid further.`;
-      else if (!Number.isFinite(amount) || amount < minValidBid || amount > s.teams[index].budget) s.auctionStatus = `Enter a bid of at least ${minValidBid} pts, within your team budget.`;
+      else if (!Number.isFinite(amount) || amount !== minValidBid || amount > s.teams[index].budget) s.auctionStatus = `The next bid must be exactly ${minValidBid} pts, within your team budget.`;
       else {
         s.currentBid = { amount, teamIndex: index, teamName: s.teams[index].name };
         s.passedTeams = s.passedTeams.filter((name) => name !== s.teams[index].name); // a fresh bid withdraws any earlier pass

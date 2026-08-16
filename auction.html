@@ -613,7 +613,7 @@
             <div id="highestBid" class="highestBid">Highest Bid: --</div>
             <div id="bidHint" class="bidHint">Base price: 25 pts &middot; minimum increment: 25 pts</div>
             <div class="bidBox">
-                <input type="number" id="bidAmount" min="25" step="25" value="25" placeholder="Enter bid amount">
+                <input type="number" id="bidAmount" min="25" max="25" step="25" value="25" readonly title="The next bid is always exactly base price / current bid + increment — no jumping ahead">
             </div>
             <button class="bidBtn" id="teamBidBtn">Bid</button>
             <button class="noBidBtn" id="teamNoBtn">NO</button>
@@ -850,14 +850,14 @@
             if (hint) {
                 hint.textContent = currentBid.teamIndex === null
                     ? `Base price: ${rules.basePrice} pts \u00b7 minimum increment: ${rules.bidIncrement} pts`
-                    : `Next bid must be at least ${minValidBid} pts`;
+                    : `Next bid must be exactly ${minValidBid} pts`;
             }
             if (bidInput) {
                 bidInput.min = minValidBid;
-                // Only nudge the field to the new minimum if it's still at (or
-                // below) the old minimum, so we don't clobber a bid someone is
-                // actively typing above the floor.
-                if (Number(bidInput.value) < minValidBid) bidInput.value = minValidBid;
+                bidInput.max = minValidBid;
+                // The field is read-only and always pinned to the current
+                // required bid — bidders can't type a bigger jump.
+                bidInput.value = minValidBid;
             }
         }
 
@@ -1117,14 +1117,8 @@
                 return;
             }
 
-            const bidInput = document.getElementById("bidAmount");
-            const bidAmount = bidInput ? Number(bidInput.value) : 0;
             const minValidBid = getMinValidBid();
-
-            if (!Number.isFinite(bidAmount) || bidAmount < minValidBid) {
-                updateStatus(`Enter a bid of at least ${minValidBid} pts.`);
-                return;
-            }
+            const bidAmount = minValidBid;
 
             if (bidAmount > teams[teamIndex].budget) {
                 updateStatus("That bid is more than your remaining budget.");
