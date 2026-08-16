@@ -179,6 +179,35 @@
             color: #111827;
         }
 
+        .noBidBtn {
+            width: 100%;
+            margin-top: 8px;
+            padding: 12px;
+            border-radius: 10px;
+            border: 1px solid #b91c1c;
+            background: transparent;
+            color: #f87171;
+            font-weight: bold;
+            font-size: 15px;
+            cursor: pointer;
+        }
+        .noBidBtn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .noBidBtn.passed {
+            background: #7f1d1d;
+            color: #fecaca;
+            border-color: #7f1d1d;
+        }
+
+        .passedTeamsLabel {
+            font-size: 13px;
+            color: #f87171;
+            min-height: 18px;
+            margin-top: 8px;
+        }
+
         .currentPlayer {
             font-size: 24px;
             font-weight: 700;
@@ -525,6 +554,8 @@
                 <input type="number" id="bidAmount" min="25" step="25" value="25" placeholder="Enter bid amount">
             </div>
             <button class="bidBtn" id="teamBidBtn">Bid</button>
+            <button class="noBidBtn" id="teamNoBtn">NO</button>
+            <div id="passedTeamsLabel" class="passedTeamsLabel"></div>
             <h2 style="margin-top: 20px;">Sold Players</h2>
             <div id="soldPlayers" class="soldPlayers">No players sold yet.</div>
             <h2 style="margin-top:16px;">Unsold Players</h2>
@@ -606,6 +637,7 @@
         let spinRevealSeconds = 0;
         let currentPlayer = null;
         let currentBid = {amount: 0, teamIndex: null, teamName: ""};
+        let passedTeams = [];
         let soldPlayers = [];
         let unsoldPlayers = [];
         let countdownSeconds = 0;
@@ -671,6 +703,18 @@
             if (bidInput) bidInput.disabled = bidDisabled;
             if (bidButton) bidButton.disabled = bidDisabled;
             if (teamIsFull) updateStatus(`${teams[myTeamIndex].name} already has ${rules.maxPlayersPerTeam} players — bidding closed for your team.`);
+
+            const noButton = document.getElementById("teamNoBtn");
+            if (noButton) {
+                const hasPassed = myTeamIndex !== -1 && passedTeams.includes(teams[myTeamIndex].name);
+                // A team can pass any time it could otherwise bid — including
+                // after passing once, so they can see the state but re-passing
+                // is a harmless no-op (it's not a permanent forfeit).
+                noButton.disabled = bidDisabled;
+                noButton.classList.toggle("passed", hasPassed);
+                noButton.textContent = hasPassed ? "NO (passed)" : "NO";
+            }
+            updatePassedTeamsLabel();
 
             updateCountdownButton();
             renderTeams();
@@ -834,14 +878,17 @@
                 spinRevealSeconds = 0;
                 currentPlayer = serverState.currentPlayer;
                 currentBid = serverState.currentBid || {amount: 0, teamIndex: null, teamName: ""};
+                passedTeams = Array.isArray(serverState.passedTeams) ? [...serverState.passedTeams] : [];
             } else {
                 spinRevealSeconds = Number(serverState.spinRevealSeconds || 0);
                 if (spinRevealSeconds > 0) {
                     currentPlayer = null;
                     currentBid = {amount: 0, teamIndex: null, teamName: ""};
+                    passedTeams = [];
                 } else {
                     currentPlayer = serverState.currentPlayer;
                     currentBid = serverState.currentBid || {amount: 0, teamIndex: null, teamName: ""};
+                    passedTeams = Array.isArray(serverState.passedTeams) ? [...serverState.passedTeams] : [];
                 }
             }
 
@@ -1014,6 +1061,25 @@
             }
 
             sendAction("bid", {amount: bidAmount});
+        }
+
+        function passBid() {
+            const teamIndex = getCurrentTeamIndex();
+            if (teamIndex === -1) {
+                updateStatus("Only a team captain may pass.");
+                return;
+            }
+            if (!currentPlayer) {
+                updateStatus("Spin the wheel first to reveal a player.");
+                return;
+            }
+            sendAction("pass");
+        }
+
+        function updatePassedTeamsLabel() {
+            const label = document.getElementById("passedTeamsLabel");
+            if (!label) return;
+            label.textContent = passedTeams.length ? `Passed: ${passedTeams.join(", ")}` : "";
         }
 
         function spinWheel() {
@@ -1539,6 +1605,7 @@
         document.getElementById("spinBtn").addEventListener("click", spinWheel);
         document.getElementById("sellBtn").addEventListener("click", startBidCountdown);
         document.getElementById("teamBidBtn").addEventListener("click", placeBid);
+        document.getElementById("teamNoBtn").addEventListener("click", passBid);
         document.getElementById("resetBtn").addEventListener("click", resetAuction);
         document.getElementById("playersBtn").addEventListener("click", managePlayers);
         document.getElementById("rulesBtn").addEventListener("click", openRulesModal);

@@ -34,7 +34,7 @@ function createState() {
     rules: { ...DEFAULT_RULES },
     teams: ['A', 'B', 'C', 'D', 'E'].map((letter) => ({ name: `Team ${letter}`, budget: DEFAULT_RULES.startingBudget, players: [] })),
     playerNames: [...playerNames], wheelPlayers: [...playerNames], currentPlayer: null,
-    currentBid: { amount: 0, teamIndex: null, teamName: '' }, soldPlayers: [], unsoldPlayers: [],
+    currentBid: { amount: 0, teamIndex: null, teamName: '' }, soldPlayers: [], unsoldPlayers: [], passedTeams: [],
     countdownSeconds: 0, spinRevealSeconds: 0, auctionStatus: 'Spin the wheel to reveal the next player.',
     wheelRotation: 0, spinning: false, spinId: 0, spinTargetIndex: null, spinWheelPlayers: [], history: []
   };
@@ -129,7 +129,7 @@ function finalizeCurrentPlayer(event) {
   const s = event.state;
   if (s.currentBid.teamIndex === null) { s.unsoldPlayers.push(s.currentPlayer); log(event, `${s.currentPlayer} went unsold.`); }
   else { const team = s.teams[s.currentBid.teamIndex]; team.budget -= s.currentBid.amount; team.players.push(s.currentPlayer); s.soldPlayers.unshift({ player: s.currentPlayer, team: team.name, amount: s.currentBid.amount }); log(event, `${s.currentPlayer} SOLD to ${team.name} for ${s.currentBid.amount} pts.`); }
-  s.currentPlayer = null; s.currentBid = { amount: 0, teamIndex: null, teamName: '' }; s.countdownSeconds = 0;
+  s.currentPlayer = null; s.currentBid = { amount: 0, teamIndex: null, teamName: '' }; s.passedTeams = []; s.countdownSeconds = 0;
   if (!s.wheelPlayers.length && s.unsoldPlayers.length) { s.wheelPlayers = s.unsoldPlayers.splice(0); s.auctionStatus = 'Unsold players are back on the wheel for another round.'; }
   else { s.auctionStatus = 'Player processed. Spin the wheel for the next player.'; completeIfFinished(event); }
 }
@@ -347,7 +347,7 @@ wss.on('connection', (ws) => {
     if (msg.type === 'spin') {
       if (!isBidder(msg)) s.auctionStatus = 'Only the bidder can spin the wheel.';
       else if (s.currentPlayer || !s.wheelPlayers.length) s.auctionStatus = 'Finish the current player before spinning again.';
-      else { const index = Number.isInteger(+msg.selectedIndex) && +msg.selectedIndex >= 0 && +msg.selectedIndex < s.wheelPlayers.length ? +msg.selectedIndex : Math.floor(Math.random() * s.wheelPlayers.length); s.currentPlayer = s.wheelPlayers.splice(index, 1)[0]; s.currentBid = { amount: 0, teamIndex: null, teamName: '' }; s.auctionStatus = `Selected ${s.currentPlayer}. Place your bid now.`; log(event, `Revealed: ${s.currentPlayer}.`); }
+      else { const index = Number.isInteger(+msg.selectedIndex) && +msg.selectedIndex >= 0 && +msg.selectedIndex < s.wheelPlayers.length ? +msg.selectedIndex : Math.floor(Math.random() * s.wheelPlayers.length); s.currentPlayer = s.wheelPlayers.splice(index, 1)[0]; s.currentBid = { amount: 0, teamIndex: null, teamName: '' }; s.passedTeams = []; s.auctionStatus = `Selected ${s.currentPlayer}. Place your bid now.`; log(event, `Revealed: ${s.currentPlayer}.`); }
       return saveAndBroadcast(event);
     }
     if (msg.type === 'bid') {
@@ -359,7 +359,25 @@ wss.on('connection', (ws) => {
       else if (index < 0) s.auctionStatus = 'Only a team captain can place a bid.';
       else if (s.teams[index].players.length >= s.rules.maxPlayersPerTeam) s.auctionStatus = `${s.teams[index].name} already has ${s.rules.maxPlayersPerTeam} players and cannot bid further.`;
       else if (!Number.isFinite(amount) || amount < minValidBid || amount > s.teams[index].budget) s.auctionStatus = `Enter a bid of at least ${minValidBid} pts, within your team budget.`;
-      else { s.currentBid = { amount, teamIndex: index, teamName: s.teams[index].name }; s.auctionStatus = `${s.teams[index].name} placed ${amount} pts for ${s.currentPlayer}.`; log(event, s.auctionStatus); }
+      else {
+        s.currentBid = { amount, teamIndex: index, teamName: s.teams[index].name };
+        s.passedTeams = s.passedTeams.filter((name) => name !== s.teams[index].name); // a fresh bid withdraws any earlier pass
+        s.auctionStatus = `${s.teams[index].name} placed ${amount} pts for ${s.currentPlayer}.`; log(event, s.auctionStatus);
+      }
+      return saveAndBroadcast(event);
+    }
+    if (msg.type === 'pass') {
+      // A team declaring "not interested in this player right now" — purely
+      // informational for the room, doesn't block them from bidding later if
+      // they change their mind before the player is sold.
+      const index = s.teams.findIndex((team) => team.name === msg.role);
+      if (!s.currentPlayer) s.auctionStatus = 'Spin the wheel first.';
+      else if (index < 0) s.auctionStatus = 'Only a team captain can pass.';
+      else {
+        const teamName = s.teams[index].name;
+        if (!s.passedTeams.includes(teamName)) s.passedTeams.push(teamName);
+        s.auctionStatus = `${teamName} passed on ${s.currentPlayer}.`; log(event, s.auctionStatus);
+      }
       return saveAndBroadcast(event);
     }
     if (msg.type === 'startCountdown') {
