@@ -14,6 +14,16 @@ const EVENTS_FILE = path.join(__dirname, 'auction-events.json');
 const LEGACY_STATE_FILE = path.join(__dirname, 'auction-state.json');
 const BIDDER_PASSWORD = 'Fifa6';
 const MAX_HISTORY = 300;
+// These are just the defaults a brand-new event starts with — the Bidder can
+// change all of them per-event via the "Manage Auction Rules" screen, which
+// is stored as state.rules and takes over from here at runtime.
+const DEFAULT_RULES = {
+  basePrice: 25,          // every player's starting/minimum bid
+  bidIncrement: 25,       // each new bid must beat the current one by at least this much
+  maxPlayersPerTeam: 5,   // a team cannot buy more than this many players
+  minPlayersPerTeam: 5,   // every team is expected to end up with at least this many
+  startingBudget: 1000    // budget each team starts the auction with
+};
 
 app.use(express.static(publicDir));
 app.use(express.json({ limit: '2mb' }));
@@ -21,7 +31,8 @@ app.use(express.json({ limit: '2mb' }));
 const playerNames = ['Prasanta da', 'Sushil da', 'Debo da', 'Sagnik Maz', 'Ajay da', 'Ayan', 'Indra da', 'Nepal da', 'Niloy', 'Koustab', 'Santu da', 'Prem', 'Nil da', 'Susanta da', 'Rana da', 'Extra', 'Sagnik Dutta', 'Agradip', 'Subhrodip', 'Soham'];
 function createState() {
   return {
-    teams: ['A', 'B', 'C', 'D', 'E'].map((letter) => ({ name: `Team ${letter}`, budget: 1000, players: [] })),
+    rules: { ...DEFAULT_RULES },
+    teams: ['A', 'B', 'C', 'D', 'E'].map((letter) => ({ name: `Team ${letter}`, budget: DEFAULT_RULES.startingBudget, players: [] })),
     playerNames: [...playerNames], wheelPlayers: [...playerNames], currentPlayer: null,
     currentBid: { amount: 0, teamIndex: null, teamName: '' }, soldPlayers: [], unsoldPlayers: [],
     countdownSeconds: 0, spinRevealSeconds: 0, auctionStatus: 'Spin the wheel to reveal the next player.',
@@ -102,7 +113,16 @@ function saveAndBroadcast(event) {
 function completeIfFinished(event) {
   const s = event.state;
   if (!s.currentPlayer && s.wheelPlayers.length === 0 && s.unsoldPlayers.length === 0) {
-    event.status = 'completed'; event.completedAt = Date.now(); s.auctionStatus = 'Auction completed. All players have been sold.'; log(event, 'Auction completed.');
+    event.status = 'completed'; event.completedAt = Date.now();
+    // Bidding can't force a team to buy — nobody can be made to bid — so a
+    // team ending up under the minimum isn't blockable, only flagged here
+    // once there are no players left to auction.
+    const minPlayers = s.rules.minPlayersPerTeam;
+    const shortTeams = s.teams.filter((team) => team.players.length < minPlayers);
+    s.auctionStatus = shortTeams.length
+      ? `Auction completed. Note: ${shortTeams.map((t) => `${t.name} (${t.players.length}/${minPlayers})`).join(', ')} did not reach the ${minPlayers}-player minimum.`
+      : 'Auction completed. All players have been sold.';
+    log(event, shortTeams.length ? `Auction completed with teams below the ${minPlayers}-player minimum: ${shortTeams.map((t) => t.name).join(', ')}.` : 'Auction completed.');
   }
 }
 function finalizeCurrentPlayer(event) {
@@ -199,7 +219,27 @@ app.delete('/api/events/:id', (req, res) => {
   res.status(204).end();
 });
 
+// ---- WebSocket heartbeat ----
+// The client already re-sends a "join" message every 5s as an application-level
+// heartbeat, but that relies on the page's JS timers actually running (a
+// backgrounded/frozen mobile tab can stall them). This adds a native WS
+// ping/pong check on top: any socket that doesn't answer a ping within one
+// interval is terminated, so a truly dead peer is cleaned out of wss.clients
+// (and its "peer-left" broadcast sent) quickly instead of lingering as a
+// zombie connection that still looks alive to everyone else.
+const HEARTBEAT_INTERVAL_MS = 25000;
+const heartbeatInterval = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) { ws.terminate(); continue; }
+    ws.isAlive = false;
+    ws.ping();
+  }
+}, HEARTBEAT_INTERVAL_MS);
+wss.on('close', () => clearInterval(heartbeatInterval));
+
 wss.on('connection', (ws) => {
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
   ws.on('close', () => { if (ws.eventId && ws.peerId) broadcastToEvent(ws.eventId, { type: 'peer-left', peerId: ws.peerId }, ws); });
   ws.on('message', (raw) => {
     let msg; try { msg = JSON.parse(raw.toString()); } catch (_) { return; }
@@ -285,6 +325,25 @@ wss.on('connection', (ws) => {
       s.playerNames = players; s.wheelPlayers = [...players]; s.auctionStatus = `${players.length} players saved for this auction.`; log(event, `Player list updated (${players.length} players).`);
       return saveAndBroadcast(event);
     }
+    if (msg.type === 'setRules') {
+      if (!isBidder(msg)) { s.auctionStatus = 'Only the bidder can change auction rules.'; return saveAndBroadcast(event); }
+      // Same gate as setPlayers: rules affect every bid's validity and every
+      // team's starting budget, so they can't be changed once bidding, sales,
+      // or budgets are already in motion.
+      if (s.currentPlayer || s.soldPlayers.length || s.unsoldPlayers.length || s.countdownSeconds > 0) { s.auctionStatus = 'Auction rules can only be changed before the auction starts.'; return saveAndBroadcast(event); }
+      const r = msg.rules || {};
+      const basePrice = Number(r.basePrice), bidIncrement = Number(r.bidIncrement), maxPlayersPerTeam = Number(r.maxPlayersPerTeam), minPlayersPerTeam = Number(r.minPlayersPerTeam), startingBudget = Number(r.startingBudget);
+      const isPosInt = (n) => Number.isInteger(n) && n > 0;
+      if (!isPosInt(basePrice) || !isPosInt(bidIncrement) || !isPosInt(maxPlayersPerTeam) || !Number.isInteger(minPlayersPerTeam) || minPlayersPerTeam < 0 || !isPosInt(startingBudget)) {
+        s.auctionStatus = 'Rules must be positive whole numbers (minimum players can be 0).'; return saveAndBroadcast(event);
+      }
+      if (minPlayersPerTeam > maxPlayersPerTeam) { s.auctionStatus = 'Minimum players per team cannot be greater than the maximum.'; return saveAndBroadcast(event); }
+      if (basePrice > startingBudget) { s.auctionStatus = 'Base price cannot be greater than the starting budget.'; return saveAndBroadcast(event); }
+      s.rules = { basePrice, bidIncrement, maxPlayersPerTeam, minPlayersPerTeam, startingBudget };
+      s.teams.forEach((team) => { team.budget = startingBudget; }); // safe — this gate guarantees nobody has bought or spent anything yet
+      s.auctionStatus = 'Auction rules updated.'; log(event, `Rules updated: base ${basePrice}, increment ${bidIncrement}, players ${minPlayersPerTeam}-${maxPlayersPerTeam} per team, budget ${startingBudget}.`);
+      return saveAndBroadcast(event);
+    }
     if (msg.type === 'spin') {
       if (!isBidder(msg)) s.auctionStatus = 'Only the bidder can spin the wheel.';
       else if (s.currentPlayer || !s.wheelPlayers.length) s.auctionStatus = 'Finish the current player before spinning again.';
@@ -293,9 +352,13 @@ wss.on('connection', (ws) => {
     }
     if (msg.type === 'bid') {
       const index = s.teams.findIndex((team) => team.name === msg.role), amount = Number(msg.amount);
+      // First bid on a player must meet the base price; every bid after that
+      // must beat the current bid by at least the increment (e.g. 100 -> 125+).
+      const minValidBid = s.currentBid.amount > 0 ? s.currentBid.amount + s.rules.bidIncrement : s.rules.basePrice;
       if (!s.currentPlayer) s.auctionStatus = 'Spin the wheel first.';
       else if (index < 0) s.auctionStatus = 'Only a team captain can place a bid.';
-      else if (!Number.isFinite(amount) || amount <= s.currentBid.amount || amount > s.teams[index].budget) s.auctionStatus = 'Enter a higher valid bid within your team budget.';
+      else if (s.teams[index].players.length >= s.rules.maxPlayersPerTeam) s.auctionStatus = `${s.teams[index].name} already has ${s.rules.maxPlayersPerTeam} players and cannot bid further.`;
+      else if (!Number.isFinite(amount) || amount < minValidBid || amount > s.teams[index].budget) s.auctionStatus = `Enter a bid of at least ${minValidBid} pts, within your team budget.`;
       else { s.currentBid = { amount, teamIndex: index, teamName: s.teams[index].name }; s.auctionStatus = `${s.teams[index].name} placed ${amount} pts for ${s.currentPlayer}.`; log(event, s.auctionStatus); }
       return saveAndBroadcast(event);
     }

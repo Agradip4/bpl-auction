@@ -194,6 +194,84 @@
             min-height: 24px;
         }
 
+        .bidHint {
+            font-size: 13px;
+            color: #94a3b8;
+            margin: 4px 0 10px;
+        }
+        .rulesModal {
+            position: fixed;
+            inset: 0;
+            background: rgba(2, 6, 23, 0.75);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+            padding: 16px;
+        }
+        .rulesModalCard {
+            width: min(100%, 420px);
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 14px;
+            padding: 22px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .rulesModalCard h2 {
+            margin-top: 0;
+            color: #fbbf24;
+        }
+        .rulesModalHint {
+            color: #94a3b8;
+            font-size: 13px;
+            line-height: 1.5;
+            margin-top: -6px;
+        }
+        .rulesModalCard label {
+            display: block;
+            margin: 14px 0 6px;
+            font-weight: bold;
+            color: #fde68a;
+            font-size: 14px;
+        }
+        .rulesModalCard input {
+            width: 100%;
+            padding: 10px;
+            border-radius: 8px;
+            background: #0b1220;
+            color: #fff;
+            border: 1px solid #64748b;
+            font-size: 15px;
+            box-sizing: border-box;
+        }
+        .rulesModalError {
+            color: #f87171;
+            margin-top: 12px;
+            font-size: 14px;
+        }
+        .rulesModalActions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .rulesModalActions button {
+            flex: 1;
+            padding: 12px;
+            border-radius: 9px;
+            border: 0;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 15px;
+        }
+        .rulesCancelBtn {
+            background: #334155;
+            color: #f8fafc;
+        }
+        .rulesSaveBtn {
+            background: #f59e0b;
+            color: #111827;
+        }
         .bidBox {
             margin-bottom: 16px;
         }
@@ -431,6 +509,7 @@
                 <button id="sellBtn">⏱️ Start Bid Countdown</button>
                 <button id="resetBtn">🔄 Reset Auction</button>
                 <button id="playersBtn">Manage Auction Players</button>
+                <button id="rulesBtn">Manage Auction Rules</button>
             </div>
             <div class="status" id="auctionStatus">Spin the wheel to reveal the next player.</div>
             <div class="roleInfo">Logged in as <strong id="currentDisplayName"></strong> (<strong id="currentRole"></strong>)</div>
@@ -441,8 +520,9 @@
             <h2>Current Player</h2>
             <div id="currentPlayer" class="currentPlayer">No player selected</div>
             <div id="highestBid" class="highestBid">Highest Bid: --</div>
+            <div id="bidHint" class="bidHint">Base price: 25 pts &middot; minimum increment: 25 pts</div>
             <div class="bidBox">
-                <input type="number" id="bidAmount" min="1" value="100" placeholder="Enter bid amount">
+                <input type="number" id="bidAmount" min="25" step="25" value="25" placeholder="Enter bid amount">
             </div>
             <button class="bidBtn" id="teamBidBtn">Bid</button>
             <h2 style="margin-top: 20px;">Sold Players</h2>
@@ -452,6 +532,28 @@
             <h2 style="margin-top:16px;">History</h2>
             <div id="auctionHistory" class="soldPlayers history-log">No events yet.</div>
         </section>
+    </div>
+
+    <div id="rulesModal" class="rulesModal" style="display:none">
+        <div class="rulesModalCard">
+            <h2>Manage Auction Rules</h2>
+            <p class="rulesModalHint">Only changeable before the auction starts (no players sold, unsold, or up for bid yet).</p>
+            <label for="ruleBasePrice">Base price per player (pts)</label>
+            <input type="number" id="ruleBasePrice" min="1" step="1">
+            <label for="ruleBidIncrement">Minimum bid increment (pts)</label>
+            <input type="number" id="ruleBidIncrement" min="1" step="1">
+            <label for="ruleMinPlayers">Minimum players per team</label>
+            <input type="number" id="ruleMinPlayers" min="0" step="1">
+            <label for="ruleMaxPlayers">Maximum players per team</label>
+            <input type="number" id="ruleMaxPlayers" min="1" step="1">
+            <label for="ruleStartingBudget">Starting budget per team (pts)</label>
+            <input type="number" id="ruleStartingBudget" min="1" step="1">
+            <div id="rulesModalError" class="rulesModalError" style="display:none"></div>
+            <div class="rulesModalActions">
+                <button id="rulesCancelBtn" class="rulesCancelBtn" type="button">Cancel</button>
+                <button id="rulesSaveBtn" class="rulesSaveBtn" type="button">Save Rules</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -486,6 +588,17 @@
             {name: "Team D", budget: 1000, players: []},
             {name: "Team E", budget: 1000, players: []}
         ];
+
+        // Must match server.js's DEFAULT_RULES until the real values arrive
+        // from the server on first sync — after that, `rules` always reflects
+        // state.rules from the server (the source of truth).
+        let rules = {
+            basePrice: 25,
+            bidIncrement: 25,
+            maxPlayersPerTeam: 5,
+            minPlayersPerTeam: 5,
+            startingBudget: 1000
+        };
 
         const spinResultEl = document.getElementById("spinResult");
 
@@ -541,6 +654,7 @@
             document.getElementById("currentRole").textContent = currentRole;
             document.getElementById("currentDisplayName").textContent = currentName;
             document.getElementById("playersBtn").style.display = currentRole === "Bidder" ? "" : "none";
+            document.getElementById("rulesBtn").style.display = currentRole === "Bidder" ? "" : "none";
         }
 
         function updateControls() {
@@ -548,12 +662,15 @@
             document.getElementById("sellBtn").disabled = !canSell() || !currentPlayer || countdownSeconds > 0 || spinRevealSeconds > 0;
             document.getElementById("resetBtn").disabled = !canReset() || countdownSeconds > 0 || spinRevealSeconds > 0;
 
-            const canPlaceBid = getCurrentTeamIndex() !== -1;
+            const myTeamIndex = getCurrentTeamIndex();
+            const teamIsFull = myTeamIndex !== -1 && teams[myTeamIndex].players.length >= rules.maxPlayersPerTeam;
+            const canPlaceBid = myTeamIndex !== -1 && !teamIsFull;
             const bidInput = document.getElementById("bidAmount");
             const bidButton = document.getElementById("teamBidBtn");
             const bidDisabled = !canPlaceBid || !currentPlayer || countdownSeconds > 0 || spinRevealSeconds > 0;
             if (bidInput) bidInput.disabled = bidDisabled;
             if (bidButton) bidButton.disabled = bidDisabled;
+            if (teamIsFull) updateStatus(`${teams[myTeamIndex].name} already has ${rules.maxPlayersPerTeam} players — bidding closed for your team.`);
 
             updateCountdownButton();
             renderTeams();
@@ -574,11 +691,13 @@
 
             teams.forEach((team) => {
                 const playersList = team.players.length > 0 ? team.players.join(" • ") : "No players yet";
+                const isFull = team.players.length >= rules.maxPlayersPerTeam;
 
                 container.innerHTML += `
                     <div class="team">
                         <h3>${team.name}</h3>
                         <div class="budget">Budget: ${team.budget} pts</div>
+                        <div class="budget" style="${isFull ? 'color:#f87171' : ''}">Players: ${team.players.length}/${rules.maxPlayersPerTeam}${isFull ? ' (full)' : ''}</div>
                         <div class="teamPlayers">${playersList}</div>
                     </div>
                 `;
@@ -600,13 +719,34 @@
             label.textContent = currentPlayer ? currentPlayer : "";
         }
 
+        function getMinValidBid() {
+            return currentBid.amount > 0 ? currentBid.amount + rules.bidIncrement : rules.basePrice;
+        }
+
         function updateHighestBid() {
             const el = document.getElementById("highestBid");
+            const hint = document.getElementById("bidHint");
+            const bidInput = document.getElementById("bidAmount");
+            const minValidBid = getMinValidBid();
+
             if (currentBid.teamIndex === null) {
                 el.textContent = "Highest Bid: --";
-                return;
+            } else {
+                el.textContent = `Highest Bid: ${currentBid.teamName} - ${currentBid.amount} pts`;
             }
-            el.textContent = `Highest Bid: ${currentBid.teamName} - ${currentBid.amount} pts`;
+
+            if (hint) {
+                hint.textContent = currentBid.teamIndex === null
+                    ? `Base price: ${rules.basePrice} pts \u00b7 minimum increment: ${rules.bidIncrement} pts`
+                    : `Next bid must be at least ${minValidBid} pts`;
+            }
+            if (bidInput) {
+                bidInput.min = minValidBid;
+                // Only nudge the field to the new minimum if it's still at (or
+                // below) the old minimum, so we don't clobber a bid someone is
+                // actively typing above the floor.
+                if (Number(bidInput.value) < minValidBid) bidInput.value = minValidBid;
+            }
         }
 
         function updateStatus(message) {
@@ -681,6 +821,7 @@
             lastServerState = serverState;
 
             teams.splice(0, teams.length, ...serverState.teams.map((team) => ({...team, players: [...team.players]})));
+            if (serverState.rules && typeof serverState.rules === "object") rules = {...rules, ...serverState.rules};
             playerNames = Array.isArray(serverState.playerNames) ? [...serverState.playerNames] : playerNames;
             wheelPlayers = Array.isArray(serverState.wheelPlayers) ? [...serverState.wheelPlayers] : [...playerNames];
             soldPlayers = Array.isArray(serverState.soldPlayers) ? [...serverState.soldPlayers] : [];
@@ -771,6 +912,15 @@
                 updateStatus("Connected to the live auction room.");
                 socket.send(JSON.stringify({type: "join", eventId: auctionEventId, role: currentRole, name: currentName, peerId: myPeerId, password: currentRole === "Bidder" ? (localStorage.getItem("bplBidderPassword") || "") : ""}));
                 startHeartbeat();
+                // The signaling socket dropping can coincide with (or mask) a peer
+                // connection getting stuck — its oniceconnectionstatechange may not
+                // fire again on its own if nothing else changes. So on every WS
+                // reconnect, explicitly re-check each peer and kick off a
+                // restart/rebuild for any that are already sitting in a bad state.
+                peers.forEach((entry, peerId) => {
+                    const state = entry.pc.iceConnectionState;
+                    if (state === "failed" || state === "disconnected") scheduleReconnect(peerId);
+                });
             });
 
             socket.addEventListener("message", (event) => {
@@ -844,11 +994,22 @@
                 return;
             }
 
+            if (teams[teamIndex].players.length >= rules.maxPlayersPerTeam) {
+                updateStatus(`${teams[teamIndex].name} already has ${rules.maxPlayersPerTeam} players and cannot bid further.`);
+                return;
+            }
+
             const bidInput = document.getElementById("bidAmount");
             const bidAmount = bidInput ? Number(bidInput.value) : 0;
+            const minValidBid = getMinValidBid();
 
-            if (!Number.isFinite(bidAmount) || bidAmount <= 0) {
-                updateStatus("Enter a valid bid amount.");
+            if (!Number.isFinite(bidAmount) || bidAmount < minValidBid) {
+                updateStatus(`Enter a bid of at least ${minValidBid} pts.`);
+                return;
+            }
+
+            if (bidAmount > teams[teamIndex].budget) {
+                updateStatus("That bid is more than your remaining budget.");
                 return;
             }
 
@@ -900,6 +1061,53 @@
                 return;
             }
             sendAction("setPlayers", {players: selected});
+        }
+
+        function openRulesModal() {
+            if (currentRole !== "Bidder") return;
+            if (soldPlayers.length || unsoldPlayers.length || currentPlayer) {
+                updateStatus("Auction rules can only be changed before the auction starts.");
+                return;
+            }
+            document.getElementById("ruleBasePrice").value = rules.basePrice;
+            document.getElementById("ruleBidIncrement").value = rules.bidIncrement;
+            document.getElementById("ruleMinPlayers").value = rules.minPlayersPerTeam;
+            document.getElementById("ruleMaxPlayers").value = rules.maxPlayersPerTeam;
+            document.getElementById("ruleStartingBudget").value = rules.startingBudget;
+            document.getElementById("rulesModalError").style.display = "none";
+            document.getElementById("rulesModal").style.display = "flex";
+        }
+
+        function closeRulesModal() {
+            document.getElementById("rulesModal").style.display = "none";
+        }
+
+        function saveRules() {
+            const errorEl = document.getElementById("rulesModalError");
+            const showError = (message) => { errorEl.textContent = message; errorEl.style.display = "block"; };
+
+            const basePrice = Number(document.getElementById("ruleBasePrice").value);
+            const bidIncrement = Number(document.getElementById("ruleBidIncrement").value);
+            const minPlayersPerTeam = Number(document.getElementById("ruleMinPlayers").value);
+            const maxPlayersPerTeam = Number(document.getElementById("ruleMaxPlayers").value);
+            const startingBudget = Number(document.getElementById("ruleStartingBudget").value);
+            const isPosInt = (n) => Number.isInteger(n) && n > 0;
+
+            if (!isPosInt(basePrice) || !isPosInt(bidIncrement) || !isPosInt(maxPlayersPerTeam) || !isPosInt(startingBudget) || !Number.isInteger(minPlayersPerTeam) || minPlayersPerTeam < 0) {
+                showError("All fields must be positive whole numbers (minimum players can be 0).");
+                return;
+            }
+            if (minPlayersPerTeam > maxPlayersPerTeam) {
+                showError("Minimum players per team cannot be greater than the maximum.");
+                return;
+            }
+            if (basePrice > startingBudget) {
+                showError("Base price cannot be greater than the starting budget.");
+                return;
+            }
+
+            sendAction("setRules", {rules: {basePrice, bidIncrement, minPlayersPerTeam, maxPlayersPerTeam, startingBudget}});
+            closeRulesModal();
         }
 
         function exportBackup() {
@@ -1333,6 +1541,10 @@
         document.getElementById("teamBidBtn").addEventListener("click", placeBid);
         document.getElementById("resetBtn").addEventListener("click", resetAuction);
         document.getElementById("playersBtn").addEventListener("click", managePlayers);
+        document.getElementById("rulesBtn").addEventListener("click", openRulesModal);
+        document.getElementById("rulesCancelBtn").addEventListener("click", closeRulesModal);
+        document.getElementById("rulesSaveBtn").addEventListener("click", saveRules);
+        document.getElementById("rulesModal").addEventListener("click", (event) => { if (event.target.id === "rulesModal") closeRulesModal(); });
         document.getElementById("logoutBtn").addEventListener("click", logout);
         document.getElementById("auctionHistory").addEventListener("click", (event) => {
             const btn = event.target.closest(".historyDeleteBtn");
