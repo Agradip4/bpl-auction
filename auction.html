@@ -1857,21 +1857,18 @@
         // Shown ONLY to the person who just refreshed (never broadcast to anyone
         // else) — a heads-up that their audio/video calls need to re-establish,
         // with the Fix button right there as a one-tap way to force it instantly
-        // instead of waiting on the automatic reconnect. Auto-dismisses itself so
-        // it never lingers if the automatic reconnect already worked.
+        // instead of waiting on the automatic reconnect. Stays up until the user
+        // taps Fix (or Dismiss) — no auto-hide timer, since the automatic
+        // reconnect finishing isn't something we get a reliable signal for here.
         const reconnectPopupOverlay = document.getElementById("reconnectPopupOverlay");
         const reconnectPopupText = document.getElementById("reconnectPopupText");
         const reconnectPopupFixBtn = document.getElementById("reconnectPopupFixBtn");
         const reconnectPopupDismissBtn = document.getElementById("reconnectPopupDismissBtn");
-        let reconnectPopupTimer = null;
         function showReconnectPopup() {
-            reconnectPopupText.textContent = "Welcome back — reconnecting your audio/video calls with everyone else in the room. This usually finishes on its own in a few seconds; tap below if it doesn't.";
+            reconnectPopupText.textContent = "Welcome back — reconnecting your audio/video calls with everyone else in the room. Tap Fix if it doesn't happen automatically in a few seconds.";
             reconnectPopupOverlay.classList.add("show");
-            clearTimeout(reconnectPopupTimer);
-            reconnectPopupTimer = setTimeout(() => reconnectPopupOverlay.classList.remove("show"), 8000);
         }
         function hideReconnectPopup() {
-            clearTimeout(reconnectPopupTimer);
             reconnectPopupOverlay.classList.remove("show");
         }
         reconnectPopupFixBtn.addEventListener("click", () => { fixAllMedia(); hideReconnectPopup(); });
