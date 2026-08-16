@@ -253,7 +253,22 @@ wss.on('connection', (ws) => {
         // of minting a fresh peerId every time — that used to blow away forced
         // mute/hide state and force a full mesh teardown+rebuild for everyone.
         const requested = typeof msg.peerId === 'string' && /^[a-zA-Z0-9-]{1,64}$/.test(msg.peerId) ? msg.peerId : null;
-        ws.peerId = requested && !findPeer(event.id, requested) ? requested : crypto.randomUUID();
+        const stale = requested ? findPeer(event.id, requested) : null;
+        if (stale) {
+          // A refresh often opens the new socket before the old one's TCP
+          // connection is fully torn down, so the old ("stale") socket can
+          // still be sitting in wss.clients when the new one asks to join.
+          // Previously this made us mint a brand-new random peerId instead
+          // of reusing the requested one — which meant the peer's video call
+          // connections had to rebuild from scratch under a different ID
+          // (and could linger half-broken until a 25s heartbeat cleaned the
+          // old socket up). Instead: proactively close the stale socket now,
+          // and take over its peerId immediately, so the reconnect is instant
+          // and clean instead of racy.
+          stale.peerId = null; // prevent its own close handler from broadcasting peer-left for this peerId
+          stale.close();
+        }
+        ws.peerId = requested || crypto.randomUUID();
         const saved = peerModeration.get(ws.peerId);
         if (saved) { ws.forcedMuted = saved.forcedMuted; ws.forcedVideoOff = saved.forcedVideoOff; }
       }

@@ -1682,6 +1682,15 @@
         updateControls();
         resetSpinDisplay();
         initLocalMedia().then(loadIceServers).then(connectSocket);
+
+        // On refresh/navigation/tab-close, proactively close the signaling socket
+        // right away instead of letting the browser tear down the connection in
+        // the background. Without this, the server can be slow to notice you're
+        // gone (waiting on the network to time out or the next heartbeat ping),
+        // which leaves a stale connection for everyone else to be briefly stuck
+        // talking to. "pagehide" fires more reliably than "beforeunload" across
+        // mobile browsers and bfcache scenarios.
+        window.addEventListener("pagehide", () => { if (socket) socket.close(); });
     </script>
 </body>
 
