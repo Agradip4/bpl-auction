@@ -315,6 +315,14 @@ wss.on('connection', (ws) => {
       broadcastToEvent(ws.eventId, { type: 'peer-media-update', peerId: target.peerId, audioEnabled: target.audioEnabled && !target.forcedMuted, videoEnabled: target.videoEnabled && !target.forcedVideoOff }, null);
       return;
     }
+    if (msg.type === 'refreshAll') {
+      if (!isBidder(msg)) return ws.send(JSON.stringify({ type: 'error', message: 'Only the bidder can refresh everyone.' }));
+      // null excludeWs -> nobody is skipped, so this reloads the bidder's own
+      // tab too, matching "everyone's site gets refreshed".
+      broadcastToEvent(event.id, { type: 'force-reload' }, null);
+      log(event, 'Bidder refreshed everyone\'s screen.'); saveEvents();
+      return;
+    }
     const s = event.state;
     if (event.status === 'completed' && msg.type !== 'import') { s.auctionStatus = 'This auction is completed and is read-only.'; return saveAndBroadcast(event); }
     if (msg.type === 'reset') { if (!isBidder(msg)) { s.auctionStatus = 'Only the bidder can reset the auction.'; } else resetEvent(event); return saveAndBroadcast(event); }

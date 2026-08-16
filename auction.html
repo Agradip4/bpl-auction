@@ -122,6 +122,11 @@
             color: white;
         }
 
+        #refreshAllBtn {
+            background: #0891b2;
+            color: white;
+        }
+
         #exportBtn,
         #importBtn {
             background: #475569;
@@ -593,6 +598,7 @@
                 <button id="spinBtn">🎡 Spin</button>
                 <button id="sellBtn">⏱️ Start Bid Countdown</button>
                 <button id="resetBtn">🔄 Reset Auction</button>
+                <button id="refreshAllBtn" title="Reload the page for every connected participant, including yourself">📶 Refresh Everyone</button>
                 <button id="playersBtn">Manage Auction Players</button>
                 <button id="rulesBtn">Manage Auction Rules</button>
             </div>
@@ -748,6 +754,7 @@
             document.getElementById("currentDisplayName").textContent = currentName;
             document.getElementById("playersBtn").style.display = currentRole === "Bidder" ? "" : "none";
             document.getElementById("rulesBtn").style.display = currentRole === "Bidder" ? "" : "none";
+            document.getElementById("refreshAllBtn").style.display = currentRole === "Bidder" ? "" : "none";
         }
 
         function updateControls() {
@@ -1059,6 +1066,8 @@
                         applyForcedMedia(payload.kind, payload.enabled);
                     } else if (payload.type === "kicked") {
                         handleKicked();
+                    } else if (payload.type === "force-reload") {
+                        location.reload();
                     }
                 } catch (error) {
                     console.error("Invalid auction socket payload", error);
@@ -1173,6 +1182,12 @@
                 return;
             }
             sendAction("reset");
+        }
+
+        function refreshEveryone() {
+            if (currentRole !== "Bidder") return;
+            if (!confirm("Reload the page for every connected participant (including you)?")) return;
+            sendAction("refreshAll");
         }
 
         function managePlayers() {
@@ -1944,6 +1959,7 @@
         document.getElementById("teamBidBtn").addEventListener("click", placeBid);
         document.getElementById("teamNoBtn").addEventListener("click", passBid);
         document.getElementById("resetBtn").addEventListener("click", resetAuction);
+        document.getElementById("refreshAllBtn").addEventListener("click", refreshEveryone);
         document.getElementById("playersBtn").addEventListener("click", managePlayers);
         document.getElementById("rulesBtn").addEventListener("click", openRulesModal);
         document.getElementById("rulesCancelBtn").addEventListener("click", closeRulesModal);
