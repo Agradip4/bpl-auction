@@ -1680,6 +1680,19 @@
         function addPeer(info, shouldInitiate) {
             if (peers.has(info.peerId)) {
                 updatePeerMediaIcons(info.peerId, info.audioEnabled, info.videoEnabled);
+                if (!shouldInitiate) {
+                    // The server only ever sends "peer-joined" for a genuinely fresh
+                    // session on their end (see server.js's alreadyInRoom check) — so
+                    // if we're hearing it for a peerId we already have a connection
+                    // for, that connection is stale: they just built a brand-new
+                    // RTCPeerConnection (almost always because they refreshed), and
+                    // our old one can't carry their new audio/video. Don't wait for
+                    // their offer to arrive (it's coming, but on a slower path) or
+                    // for the watchdog to notice silence 8s from now — rebuild the
+                    // instant we know they're back, so this recovers automatically
+                    // with nobody having to press "Fix audio/video" or refresh.
+                    rebuildConnection(info.peerId, {force: true});
+                }
                 return;
             }
             const elems = makeTile(info.peerId, info.name, info.role, false);
