@@ -1232,25 +1232,30 @@
         // offer/answer/ICE messages (see "webrtc-signal" below) and tells a
         // client when the Bidder has force-muted/hidden it — the server never
         // touches media itself.
-        // STUN alone only helps two browsers find each other's public address for a
-        // DIRECT connection — on many mobile/carrier networks and strict NATs a direct
-        // path is impossible, and without a TURN relay that pair just gets silent
-        // audio/video with no error.
-        // Starts as the free fallback relay; loadIceServers() below swaps this for our
-        // dedicated ExpressTURN credentials fetched from our own server (server.js
-        // keeps the ExpressTURN password secret and never hardcodes it in this file).
-        let ICE_SERVERS = [
-            {urls: "stun:stun.l.google.com:19302"},
-            {urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject"},
-            {urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject"},
-            {urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject"}
-        ];
+        // Voice/video runs entirely through ExpressTURN — no Google STUN and no
+        // public openrelay fallback. ICE_SERVERS starts empty and is only ever
+        // populated from our own server's /api/turn-credentials endpoint, which
+        // itself only returns ExpressTURN credentials (server.js keeps the
+        // ExpressTURN password secret and never hardcodes it in this file).
+        // If ExpressTURN credentials aren't available, calling stays disabled
+        // rather than silently falling back to a different relay.
+        let ICE_SERVERS = [];
+        let iceServersReady = false;
         async function loadIceServers() {
             try {
                 const res = await fetch("/api/turn-credentials");
+                if (!res.ok) throw new Error("turn-credentials unavailable");
                 const data = await res.json();
-                if (Array.isArray(data.iceServers) && data.iceServers.length) ICE_SERVERS = data.iceServers;
-            } catch (error) { /* keep the fallback list above */ }
+                if (Array.isArray(data.iceServers) && data.iceServers.length) {
+                    ICE_SERVERS = data.iceServers;
+                    iceServersReady = true;
+                } else {
+                    throw new Error("no ExpressTURN servers returned");
+                }
+            } catch (error) {
+                iceServersReady = false;
+                updateStatus("Voice/video is unavailable — ExpressTURN is not configured on the server.");
+            }
         }
         const videoGrid = document.getElementById("videoGrid");
         const micBtn = document.getElementById("micBtn");
@@ -1500,6 +1505,10 @@
         }
 
         function createPeerConnection(peerId, options) {
+            if (!iceServersReady) {
+                updateStatus("Voice/video is unavailable — ExpressTURN is not configured on the server.");
+                throw new Error("ExpressTURN credentials not loaded; refusing to create a peer connection without a TURN relay.");
+            }
             const audioOnly = !!(options && options.audioOnly);
             const pc = new RTCPeerConnection({iceServers: ICE_SERVERS});
             if (localStream) {
@@ -1549,7 +1558,13 @@
                 return;
             }
             const elems = makeTile(info.peerId, info.name, info.role, false);
-            const pc = createPeerConnection(info.peerId);
+            let pc;
+            try {
+                pc = createPeerConnection(info.peerId);
+            } catch (error) {
+                elems.tile.remove(); // no ExpressTURN relay available — don't leave a dead tile behind
+                return;
+            }
             peers.set(info.peerId, {pc, info, isInitiator: shouldInitiate, ...elems});
             setTileHasVideo(elems, false);
             updatePeerMediaIcons(info.peerId, info.audioEnabled, info.videoEnabled);
