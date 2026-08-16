@@ -201,6 +201,32 @@
             border-color: #7f1d1d;
         }
 
+        .pttBtn {
+            width: 100%;
+            margin-top: 10px;
+            padding: 14px;
+            border-radius: 10px;
+            border: 2px solid #0ea5e9;
+            background: #0c4a6e;
+            color: #e0f2fe;
+            font-weight: bold;
+            font-size: 15px;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+            transition: background 0.1s ease, transform 0.1s ease;
+        }
+        .pttBtn.active {
+            background: #0ea5e9;
+            color: #082f49;
+            transform: scale(0.98);
+        }
+        .pttBtn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
         .passedTeamsLabel {
             font-size: 13px;
             color: #f87171;
@@ -555,6 +581,7 @@
             </div>
             <button class="bidBtn" id="teamBidBtn">Bid</button>
             <button class="noBidBtn" id="teamNoBtn">NO</button>
+            <button class="pttBtn" id="pttBtn" type="button">🎙️ Hold to Talk</button>
             <div id="passedTeamsLabel" class="passedTeamsLabel"></div>
             <h2 style="margin-top: 20px;">Sold Players</h2>
             <div id="soldPlayers" class="soldPlayers">No players sold yet.</div>
@@ -1260,11 +1287,13 @@
         const videoGrid = document.getElementById("videoGrid");
         const micBtn = document.getElementById("micBtn");
         const camBtn = document.getElementById("camBtn");
+        const pttBtn = document.getElementById("pttBtn");
         const isModerator = currentRole === "Bidder";
 
         let localStream = null;
         let micOn = true;
         let camOn = true;
+        let pttActive = false;
         let forcedMuted = false;
         let forcedVideoOff = false;
         const peers = new Map(); // peerId -> { pc, info, tileEl, videoEl, placeholderEl }
@@ -1351,7 +1380,7 @@
 
         function sendMediaState() {
             if (!socket || socket.readyState !== WebSocket.OPEN) return;
-            socket.send(JSON.stringify({type: "media-state", audioEnabled: micOn, videoEnabled: camOn}));
+            socket.send(JSON.stringify({type: "media-state", audioEnabled: pttActive || micOn, videoEnabled: camOn}));
         }
 
         function toggleMic() {
@@ -1378,10 +1407,46 @@
             sendMediaState();
         }
 
+        // ---- Push-to-talk ----
+        // Hold the button to unmute and talk, release to go back to muted — the
+        // classic walkie-talkie pattern. This works alongside (not instead of)
+        // the Mic on/off toggle above the video grid: holding PTT always opens
+        // the mic while held, regardless of the toggle's current state, and
+        // releasing restores whatever the toggle was set to. A forced mute from
+        // the bidder overrides both.
+        function pttStart(event) {
+            event.preventDefault();
+            if (forcedMuted) {
+                updateStatus("The bidder has muted your mic — they need to unmute you.");
+                return;
+            }
+            if (pttActive) return;
+            pttActive = true;
+            if (localStream) localStream.getAudioTracks().forEach((track) => { track.enabled = true; });
+            pttBtn.classList.add("active");
+            pttBtn.textContent = "🎙️ Talking…";
+            sendMediaState();
+        }
+        function pttEnd() {
+            if (!pttActive) return;
+            pttActive = false;
+            if (localStream) localStream.getAudioTracks().forEach((track) => { track.enabled = micOn && !forcedMuted; });
+            pttBtn.classList.remove("active");
+            pttBtn.textContent = "🎙️ Hold to Talk";
+            sendMediaState();
+        }
+
         function applyForcedMedia(kind, enabled) {
             if (kind === "audio") {
                 forcedMuted = !enabled;
-                if (!enabled && localStream) { micOn = false; localStream.getAudioTracks().forEach((track) => { track.enabled = false; }); }
+                if (!enabled && localStream) {
+                    micOn = false;
+                    pttActive = false; // a forced mute always wins, even mid-hold
+                    localStream.getAudioTracks().forEach((track) => { track.enabled = false; });
+                    pttBtn.classList.remove("active");
+                    pttBtn.textContent = "🎙️ Hold to Talk";
+                }
+                pttBtn.disabled = forcedMuted;
             } else if (kind === "video") {
                 forcedVideoOff = !enabled;
                 if (!enabled) {
@@ -1654,6 +1719,17 @@
 
         micBtn.addEventListener("click", toggleMic);
         camBtn.addEventListener("click", toggleCam);
+
+        // Mouse + touch, plus safety releases (mouseleave/blur) so the mic doesn't
+        // get stuck "on" if the pointer drags off the button or the tab loses focus
+        // while held.
+        pttBtn.addEventListener("mousedown", pttStart);
+        pttBtn.addEventListener("mouseup", pttEnd);
+        pttBtn.addEventListener("mouseleave", pttEnd);
+        pttBtn.addEventListener("touchstart", pttStart, {passive: false});
+        pttBtn.addEventListener("touchend", pttEnd);
+        pttBtn.addEventListener("touchcancel", pttEnd);
+        window.addEventListener("blur", pttEnd);
 
         document.getElementById("spinBtn").addEventListener("click", spinWheel);
         document.getElementById("sellBtn").addEventListener("click", startBidCountdown);
