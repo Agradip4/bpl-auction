@@ -545,6 +545,7 @@
             <div class="media-controls">
                 <button class="mediaBtn" id="micBtn" type="button">🎤 Mic</button>
                 <button class="mediaBtn" id="camBtn" type="button">🎥 Camera</button>
+                <button class="mediaBtn" id="fixMediaBtn" type="button" title="Reconnect all voice/video calls without reloading the page">🔄 Fix audio/video</button>
             </div>
         </div>
         <div class="video-grid" id="videoGrid"></div>
@@ -1287,6 +1288,7 @@
         const videoGrid = document.getElementById("videoGrid");
         const micBtn = document.getElementById("micBtn");
         const camBtn = document.getElementById("camBtn");
+        const fixMediaBtn = document.getElementById("fixMediaBtn");
         const pttBtn = document.getElementById("pttBtn");
         const isModerator = currentRole === "Bidder";
 
@@ -1520,10 +1522,12 @@
                     audioBlocked = true;
                     unlockBanner.style.display = "block";
                     if (!unlockListenersAttached) {
-                        // Attach the page-wide "any click/tap unlocks it" listeners only
-                        // once we actually know playback is blocked, so an earlier,
-                        // unrelated click (e.g. picking a role) can't consume the one-shot
-                        // gesture before there's any audio to unlock.
+                        // Fallback path: if the page-wide priming below (attached at
+                        // load, before we know whether it's even needed) hasn't
+                        // happened yet by the time a peer's track actually arrives,
+                        // this re-arms the same one-shot "next click/tap anywhere
+                        // unlocks everything" listener so the visible banner is
+                        // guaranteed to work too.
                         unlockListenersAttached = true;
                         document.addEventListener("click", unlockAllAudio, {once: true});
                         document.addEventListener("touchend", unlockAllAudio, {once: true});
@@ -1538,6 +1542,22 @@
             peers.forEach((entry) => { if (entry.video.srcObject) tryPlay(entry); });
         }
         unlockBanner.addEventListener("click", unlockAllAudio);
+
+        // Prime audio playback on the FIRST interaction anywhere on this page,
+        // as early as possible — rather than waiting to discover playback is
+        // blocked after a peer's audio has already arrived. Browsers grant
+        // autoplay permission for the rest of the page's lifetime after a single
+        // real gesture, so getting this in early (e.g. the moment someone taps
+        // the Mic/Camera buttons, or anything else) means by the time a remote
+        // peer's track shows up — including right after this person's own
+        // refresh — playback just works with no banner ever needed. This is
+        // purely additive to the reactive fallback above.
+        function primeAudioGesture() {
+            unlockAllAudio();
+        }
+        ["pointerdown", "touchstart", "keydown"].forEach((evt) => {
+            document.addEventListener(evt, primeAudioGesture, {once: true});
+        });
 
         async function restartIce(peerId) {
             const entry = peers.get(peerId);
@@ -1556,20 +1576,46 @@
         // bandwidth of video, so it holds a marginal link that video can't.
         const AUDIO_ONLY_AFTER_ATTEMPTS = 2;
 
-        function rebuildConnection(peerId) {
+        function rebuildConnection(peerId, opts) {
             const entry = peers.get(peerId);
             if (!entry) return;
+            const force = !!(opts && opts.force);
             const state = entry.pc.iceConnectionState;
-            if (state !== "failed" && state !== "disconnected") return; // already recovered
-            entry.rebuildAttempts = (entry.rebuildAttempts || 0) + 1;
-            if (entry.rebuildAttempts >= AUDIO_ONLY_AFTER_ATTEMPTS) entry.audioOnlyFallback = true;
-            const wasInitiator = entry.isInitiator;
+            // Normally we only rebuild a connection that's actually reporting
+            // failed/disconnected. The audio watchdog below is the one exception:
+            // it can see a connection sitting at "connected" while no audio bytes
+            // are actually arriving (a silent, half-broken connection — the ICE
+            // layer thinks everything is fine, but media isn't flowing), and needs
+            // to force a rebuild even though iceConnectionState looks healthy.
+            if (!force && state !== "failed" && state !== "disconnected") return; // already recovered
+            if (!force) {
+                // Only count genuine ICE failed/disconnected rebuilds toward the
+                // audio-only downgrade below. A forced rebuild (audio watchdog or
+                // the manual "Fix audio/video" button) doesn't mean the link is too
+                // weak for video — it means the connection needs a fresh
+                // offer/answer, so don't punish video for it.
+                entry.rebuildAttempts = (entry.rebuildAttempts || 0) + 1;
+                if (entry.rebuildAttempts >= AUDIO_ONLY_AFTER_ATTEMPTS) entry.audioOnlyFallback = true;
+            }
+            // A forced rebuild (watchdog/manual) means WE detected the problem,
+            // so we should be the one to (re-)offer even if we weren't originally
+            // the initiator — otherwise we'd sit here with a brand-new, empty
+            // connection waiting for an offer the other side has no reason to
+            // send, since nothing looks wrong from their side. If both ends
+            // happen to force-rebuild at once, that's still safe: handleSignal's
+            // "offer" branch (below) unconditionally tears down and rebuilds on
+            // any incoming offer, so whichever offer arrives second just wins
+            // and the connection converges instead of erroring out.
+            const shouldOffer = force || entry.isInitiator;
+            entry.isInitiator = shouldOffer;
+            audioStatsHistory.delete(peerId); // stale byte-count baseline from the old connection would false-trigger the watchdog against the brand-new one
+            entry.staleAudioTicks = 0;
             entry.pc.close();
             const pc = createPeerConnection(peerId, {audioOnly: entry.audioOnlyFallback});
             entry.pc = pc;
             setTileHasVideo(entry, false);
             setTileConnectionState(entry, "checking");
-            if (wasInitiator) {
+            if (shouldOffer) {
                 pc.createOffer().then((offer) => pc.setLocalDescription(offer)).then(() => {
                     socket.send(JSON.stringify({type: "webrtc-signal", to: peerId, signalType: "offer", data: pc.localDescription}));
                 }).catch(() => {});
@@ -1658,9 +1704,72 @@
             const entry = peers.get(peerId);
             if (!entry) return;
             clearReconnectTimers(peerId);
+            audioStatsHistory.delete(peerId);
             entry.pc.close();
             entry.tile.remove();
             peers.delete(peerId);
+        }
+
+        // ---- Audio watchdog ----
+        // The bug this exists for: after a peer refreshes, the offer/answer
+        // exchange and ICE negotiation can complete successfully and settle at
+        // iceConnectionState "connected" — but no audio actually arrives. That's
+        // not a signaling failure the ICE state machine can see or report, so
+        // nothing above ever notices anything is wrong, and the connection just
+        // sits there silently broken until something (like the other person also
+        // refreshing, which forces a fresh offer/rebuild) fixes it by accident.
+        // Rather than rely on that happening, we actively check: is this
+        // supposedly-healthy connection's inbound audio byte counter actually
+        // moving? If it's flatlined for two checks in a row (~8s) on a
+        // connection that should be carrying audio, treat it as broken and force
+        // a full rebuild, exactly like a real ICE failure would trigger.
+        const audioStatsHistory = new Map(); // peerId -> last known bytesReceived
+        async function checkPeerAudio(peerId, entry) {
+            const state = entry.pc.iceConnectionState;
+            if (state !== "connected" && state !== "completed") { audioStatsHistory.delete(peerId); entry.staleAudioTicks = 0; return; }
+            if (entry.info && entry.info.audioEnabled === false) { audioStatsHistory.delete(peerId); entry.staleAudioTicks = 0; return; } // they're muted on purpose — silence is expected
+            let bytesReceived = null;
+            try {
+                const stats = await entry.pc.getStats();
+                stats.forEach((report) => {
+                    if (report.type === "inbound-rtp" && report.kind === "audio" && !report.isRemote) bytesReceived = report.bytesReceived;
+                });
+            } catch (error) { return; }
+            if (bytesReceived === null) return; // no audio m-line/report yet (e.g. mid-negotiation) — nothing to compare
+            const previous = audioStatsHistory.get(peerId);
+            audioStatsHistory.set(peerId, bytesReceived);
+            if (previous !== undefined && bytesReceived <= previous) {
+                entry.staleAudioTicks = (entry.staleAudioTicks || 0) + 1;
+                if (entry.staleAudioTicks >= 2) {
+                    entry.staleAudioTicks = 0;
+                    audioStatsHistory.delete(peerId);
+                    rebuildConnection(peerId, {force: true});
+                }
+            } else {
+                entry.staleAudioTicks = 0;
+            }
+        }
+        function startAudioWatchdog() {
+            setInterval(() => {
+                peers.forEach((entry, peerId) => {
+                    if (peerId === "local") return;
+                    checkPeerAudio(peerId, entry);
+                });
+            }, 4000);
+        }
+
+        // Manual escape hatch: rebuild every peer connection on demand, without a
+        // full page reload. Covers anything the automatic checks above miss, and
+        // gives people a button to press instead of "refresh the page" folklore.
+        function fixAllMedia() {
+            updateStatus("Reconnecting audio/video for everyone…");
+            audioStatsHistory.clear();
+            peers.forEach((entry, peerId) => {
+                if (peerId === "local") return;
+                entry.staleAudioTicks = 0;
+                rebuildConnection(peerId, {force: true});
+            });
+            primeAudioGesture(); // this click is itself a user gesture — use it to unstick any blocked playback too
         }
 
         async function handleSignal(fromPeerId, signalType, data) {
@@ -1677,12 +1786,15 @@
                 // this peer and start fresh before answering.
                 if (entry) {
                     clearReconnectTimers(fromPeerId);
+                    audioStatsHistory.delete(fromPeerId);
+                    entry.staleAudioTicks = 0;
                     entry.pc.close();
                     try {
                         entry.pc = createPeerConnection(fromPeerId);
                     } catch (error) {
                         return; // ExpressTURN unavailable — can't rebuild, bail out
                     }
+                    entry.isInitiator = false; // we're answering this fresh offer, not the one who opened it
                     setTileHasVideo(entry, false);
                     setTileConnectionState(entry, "checking");
                 } else {
@@ -1714,11 +1826,16 @@
             entry.info.videoEnabled = videoEnabled;
             const icon = entry.label.querySelector(".icon-audio");
             if (icon) { icon.textContent = audioEnabled ? "🎤" : "🔇"; icon.className = "icon-audio" + (audioEnabled ? "" : " icon-muted"); }
-            if (!videoEnabled) setTileHasVideo(entry, false);
+            // Camera back on: only actually reveal the tile once we know there's a
+            // live video track to show (entry.video.srcObject gets set by ontrack).
+            // Without srcObject we'd flip to "video" state with a black/blank
+            // element instead of the name placeholder.
+            setTileHasVideo(entry, videoEnabled && !!entry.video.srcObject);
         }
 
         micBtn.addEventListener("click", toggleMic);
         camBtn.addEventListener("click", toggleCam);
+        fixMediaBtn.addEventListener("click", fixAllMedia);
 
         // Mouse + touch, plus safety releases (mouseleave/blur) so the mic doesn't
         // get stuck "on" if the pointer drags off the button or the tab loses focus
@@ -1757,7 +1874,7 @@
         updateRoleUI();
         updateControls();
         resetSpinDisplay();
-        initLocalMedia().then(loadIceServers).then(connectSocket);
+        initLocalMedia().then(loadIceServers).then(connectSocket).then(startAudioWatchdog);
 
         // On refresh/navigation/tab-close, proactively close the signaling socket
         // right away instead of letting the browser tear down the connection in
