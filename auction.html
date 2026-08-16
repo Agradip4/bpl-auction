@@ -1600,18 +1600,42 @@
 
         async function handleSignal(fromPeerId, signalType, data) {
             let entry = peers.get(fromPeerId);
-            if (!entry) {
-                // A newcomer's offer arrives before we've heard "peer-joined" — create the tile now.
-                addPeer({peerId: fromPeerId, name: "Participant", role: "", audioEnabled: true, videoEnabled: true}, false);
-                entry = peers.get(fromPeerId);
-            }
-            const pc = entry.pc;
             if (signalType === "offer") {
+                // A fresh "offer" almost always means the sender just created a
+                // brand-new RTCPeerConnection — most commonly because they refreshed
+                // the page. If we still have an old connection object for them lying
+                // around, it's stale: reusing it (instead of rebuilding) is what
+                // causes "I can't hear them until THEY refresh too" — the old
+                // connection can't properly carry their new audio/video, so it looks
+                // broken on both ends until something forces a clean rebuild. So on
+                // every incoming offer, always tear down any existing connection for
+                // this peer and start fresh before answering.
+                if (entry) {
+                    clearReconnectTimers(fromPeerId);
+                    entry.pc.close();
+                    try {
+                        entry.pc = createPeerConnection(fromPeerId);
+                    } catch (error) {
+                        return; // ExpressTURN unavailable — can't rebuild, bail out
+                    }
+                    setTileHasVideo(entry, false);
+                    setTileConnectionState(entry, "checking");
+                } else {
+                    // A newcomer's offer arrives before we've heard "peer-joined" — create the tile now.
+                    addPeer({peerId: fromPeerId, name: "Participant", role: "", audioEnabled: true, videoEnabled: true}, false);
+                    entry = peers.get(fromPeerId);
+                    if (!entry) return; // addPeer bailed out (no ExpressTURN relay available)
+                }
+                const pc = entry.pc;
                 await pc.setRemoteDescription(new RTCSessionDescription(data));
                 const answer = await pc.createAnswer();
                 await pc.setLocalDescription(answer);
                 socket.send(JSON.stringify({type: "webrtc-signal", to: fromPeerId, signalType: "answer", data: pc.localDescription}));
-            } else if (signalType === "answer") {
+                return;
+            }
+            if (!entry) return; // an answer/ice-candidate with no known peer connection — nothing to apply it to
+            const pc = entry.pc;
+            if (signalType === "answer") {
                 await pc.setRemoteDescription(new RTCSessionDescription(data));
             } else if (signalType === "ice-candidate") {
                 try { await pc.addIceCandidate(new RTCIceCandidate(data)); } catch (error) { /* ignore late candidates */ }
