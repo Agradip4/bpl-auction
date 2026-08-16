@@ -1430,13 +1430,19 @@
 
         // ---- Autoplay-blocked audio ----
         // Browsers block a <video>/<audio> element from playing sound until the
-        // page has had a real user gesture (click/tap). Because incoming WebRTC
-        // audio arrives via signaling (not a click), play() can silently fail here
-        // with NotAllowedError — you'd see/hear nothing from a peer even though
-        // the connection is perfectly healthy and they can hear you fine. When
-        // that happens we show a one-tap banner; a single tap unlocks audio for
-        // every tile at once (browsers only require ONE gesture per page).
+        // page has had a real user gesture (click/tap) AFTER that media element's
+        // source is set. Because incoming WebRTC audio arrives via signaling (not
+        // a click), play() can silently fail here with NotAllowedError — you'd
+        // see/hear nothing from a peer even though the connection is perfectly
+        // healthy and they can hear you fine. This is especially common right
+        // after a refresh, since the page is brand new and hasn't had any
+        // gesture yet. When that happens we show a one-tap banner; a single tap
+        // unlocks audio for every tile at once (browsers only require ONE
+        // gesture per page) — but that gesture must happen AFTER we know
+        // audio is blocked, or the click gets "used up" on something else
+        // (like the Enter Auction button) before any peer audio ever arrives.
         let audioBlocked = false;
+        let unlockListenersAttached = false;
         const unlockBanner = document.createElement("div");
         unlockBanner.id = "audioUnlockBanner";
         unlockBanner.style.cssText = "display:none;position:sticky;top:0;z-index:20;background:#f59e0b;color:#111827;font-weight:700;text-align:center;padding:10px;border-radius:8px;margin-bottom:10px;cursor:pointer";
@@ -1448,17 +1454,25 @@
                 if (error.name === "NotAllowedError") {
                     audioBlocked = true;
                     unlockBanner.style.display = "block";
+                    if (!unlockListenersAttached) {
+                        // Attach the page-wide "any click/tap unlocks it" listeners only
+                        // once we actually know playback is blocked, so an earlier,
+                        // unrelated click (e.g. picking a role) can't consume the one-shot
+                        // gesture before there's any audio to unlock.
+                        unlockListenersAttached = true;
+                        document.addEventListener("click", unlockAllAudio, {once: true});
+                        document.addEventListener("touchend", unlockAllAudio, {once: true});
+                    }
                 }
             });
         }
         function unlockAllAudio() {
             audioBlocked = false;
+            unlockListenersAttached = false;
             unlockBanner.style.display = "none";
-            peers.forEach((entry) => { if (entry.video.srcObject) entry.video.play().catch(() => {}); });
+            peers.forEach((entry) => { if (entry.video.srcObject) tryPlay(entry); });
         }
         unlockBanner.addEventListener("click", unlockAllAudio);
-        document.addEventListener("click", unlockAllAudio, {once: true});
-        document.addEventListener("touchend", unlockAllAudio, {once: true});
 
         async function restartIce(peerId) {
             const entry = peers.get(peerId);
